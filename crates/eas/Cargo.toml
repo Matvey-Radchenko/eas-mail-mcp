@@ -10,6 +10,7 @@ publish = false
 async-trait.workspace = true
 base64.workspace = true
 chrono.workspace = true
+eas-mail-profile = { version = "=0.2.0-beta.2", path = "../profile" }
 quick-xml.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -19,7 +20,6 @@ tokio.workspace = true
 zeroize.workspace = true
 
 [build-dependencies]
-eas-mail-profile = { version = "0.1.0", path = "../profile" }
 serde.workspace = true
 toml.workspace = true
 

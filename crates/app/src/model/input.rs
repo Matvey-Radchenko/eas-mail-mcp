@@ -1,6 +1,9 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+/// Maximum number of Unicode scalar values accepted in an outgoing body.
+pub const MAX_OUTGOING_BODY_CHARS: usize = 50_000;
+
 /// Optional account selection shared by read tools.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -151,7 +154,8 @@ pub struct MailSendInput {
     pub bcc: Vec<String>,
     /// Subject, maximum 998 characters.
     pub subject: String,
-    /// Plain-text body, maximum 1 MiB.
+    /// Plain-text body, maximum 50,000 Unicode scalar values.
+    #[schemars(length(max = 50_000))]
     pub body: String,
     /// UUID used for operation idempotency.
     pub idempotency_key: String,
@@ -163,7 +167,8 @@ pub struct MailSendInput {
 pub struct MailReplyInput {
     /// Process-local source mail reference.
     pub mail_ref: String,
-    /// Plain-text reply body.
+    /// Plain-text reply body, maximum 50,000 Unicode scalar values.
+    #[schemars(length(max = 50_000))]
     pub body: String,
     /// Include original To and Cc recipients.
     #[serde(default)]
@@ -186,8 +191,9 @@ pub struct MailForwardInput {
     /// Bcc recipients.
     #[serde(default)]
     pub bcc: Vec<String>,
-    /// Optional plain-text introduction.
+    /// Optional plain-text introduction, maximum 50,000 Unicode scalar values.
     #[serde(default)]
+    #[schemars(length(max = 50_000))]
     pub body: String,
     /// UUID used for operation idempotency.
     pub idempotency_key: String,

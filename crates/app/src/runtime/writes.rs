@@ -1,16 +1,14 @@
 use serde::Serialize;
 
 use super::Runtime;
-use super::convert::string;
-use crate::backend::{BackendMail, OutgoingMail};
+use super::outgoing::{forward_message, reply_message, validate_message};
+use crate::backend::OutgoingMail;
 use crate::journal::payload_fingerprint;
 use crate::model::{
-    MailForwardInput, MailReplyInput, MailSendInput, MarkReadInput, OperationResult, OperationState,
+    ApiResponse, MailForwardInput, MailReplyInput, MailSendInput, MarkReadInput, OperationResult,
+    OperationState,
 };
-use crate::sanitize::mailbox;
-use crate::{
-    ApiResponse, AppError, ErrorCode, JournalBegin, JournalRecord, OperationStatus, Result,
-};
+use crate::{AppError, ErrorCode, JournalBegin, JournalRecord, OperationStatus, Result};
 
 impl Runtime {
     /// Changes read state through an idempotent EAS Sync mutation.
@@ -53,20 +51,20 @@ impl Runtime {
         &self,
         input: MailSendInput,
     ) -> Result<(OperationResult, Vec<crate::Warning>)> {
-        validate_message(&input.to, &input.cc, &input.bcc, &input.subject, &input.body)?;
+        let message = OutgoingMail {
+            to: input.to.clone(),
+            cc: input.cc.clone(),
+            bcc: input.bcc.clone(),
+            subject: input.subject.clone(),
+            body: input.body.clone(),
+        };
+        validate_message(&message)?;
         let backend = self.require_write(&input.account_id)?;
         let begin =
             self.begin_write(&input.account_id, "mail_send", &input.idempotency_key, &input)?;
         if !begin.inserted {
             return Ok((existing_result(begin.record), Vec::new()));
         }
-        let message = OutgoingMail {
-            to: input.to,
-            cc: input.cc,
-            bcc: input.bcc,
-            subject: input.subject,
-            body: input.body,
-        };
         let result = backend.send(&begin.record.client_id, &message).await;
         self.finish_write(&input.account_id, &begin.record.operation_id, result)
             .map(|value| (value, Vec::new()))
@@ -79,7 +77,7 @@ impl Runtime {
         let mail = self.references.mail(&input.mail_ref)?;
         let backend = self.require_write(&mail.account_id)?;
         let message = reply_message(&mail, &backend.account().email, &input)?;
-        validate_message(&message.to, &message.cc, &message.bcc, &message.subject, &message.body)?;
+        validate_message(&message)?;
         let begin =
             self.begin_write(&mail.account_id, "mail_reply", &input.idempotency_key, &input)?;
         if !begin.inserted {
@@ -96,14 +94,11 @@ impl Runtime {
     ) -> Result<(OperationResult, Vec<crate::Warning>)> {
         let mail = self.references.mail(&input.mail_ref)?;
         let backend = self.require_write(&mail.account_id)?;
-        let message = OutgoingMail {
-            to: input.to.clone(),
-            cc: input.cc.clone(),
-            bcc: input.bcc.clone(),
-            subject: prefix_subject("Fwd:", string(&mail.fields.subject)),
-            body: input.body.clone(),
-        };
-        validate_message(&message.to, &message.cc, &message.bcc, &message.subject, &message.body)?;
+        let mut message = forward_message(&mail, &input.body);
+        message.to.clone_from(&input.to);
+        message.cc.clone_from(&input.cc);
+        message.bcc.clone_from(&input.bcc);
+        validate_message(&message)?;
         let begin =
             self.begin_write(&mail.account_id, "mail_forward", &input.idempotency_key, &input)?;
         if !begin.inserted {
@@ -180,88 +175,4 @@ fn existing_result(record: JournalRecord) -> OperationResult {
         }
     };
     OperationResult { operation_id: record.operation_id, status, message: message.into() }
-}
-
-fn reply_message(
-    mail: &BackendMail,
-    own_email: &str,
-    input: &MailReplyInput,
-) -> Result<OutgoingMail> {
-    let sender = mailbox(string(&mail.fields.sender));
-    if sender.is_empty() {
-        return Err(AppError::new(
-            ErrorCode::ValidationFailed,
-            "the source message has no reply recipient",
-        ));
-    }
-    let mut to = vec![sender];
-    let mut cc = Vec::new();
-    if input.reply_all {
-        let mut additional = addresses(string(&mail.fields.recipients));
-        remove_own_and_duplicates(&mut additional, own_email);
-        to.extend(additional);
-        cc.extend(addresses(string(&mail.fields.cc)));
-    }
-    deduplicate(&mut to);
-    remove_own_and_duplicates(&mut cc, own_email);
-    Ok(OutgoingMail {
-        to,
-        cc,
-        bcc: Vec::new(),
-        subject: prefix_subject("Re:", string(&mail.fields.subject)),
-        body: input.body.clone(),
-    })
-}
-
-fn deduplicate(values: &mut Vec<String>) {
-    let mut seen = std::collections::BTreeSet::new();
-    values.retain(|value| seen.insert(value.to_ascii_lowercase()));
-}
-
-fn addresses(value: &str) -> Vec<String> {
-    value.split([',', ';']).map(mailbox).filter(|value| !value.is_empty()).collect()
-}
-
-fn remove_own_and_duplicates(values: &mut Vec<String>, own_email: &str) {
-    let own_email = own_email.to_ascii_lowercase();
-    let mut seen = std::collections::BTreeSet::new();
-    values.retain(|value| {
-        let normalized = value.to_ascii_lowercase();
-        normalized != own_email && seen.insert(normalized)
-    });
-}
-
-fn prefix_subject(prefix: &str, subject: &str) -> String {
-    if subject.to_ascii_lowercase().starts_with(&prefix.to_ascii_lowercase()) {
-        subject.to_owned()
-    } else {
-        format!("{prefix} {subject}")
-    }
-}
-
-fn validate_message(
-    to: &[String],
-    cc: &[String],
-    bcc: &[String],
-    subject: &str,
-    body: &str,
-) -> Result<()> {
-    if to.is_empty() && cc.is_empty() && bcc.is_empty() {
-        return Err(AppError::new(
-            ErrorCode::ValidationFailed,
-            "at least one recipient is required",
-        ));
-    }
-    if subject.chars().count() > 998 || body.len() > 1024 * 1024 {
-        return Err(AppError::new(
-            ErrorCode::ValidationFailed,
-            "subject or body exceeds the supported limit",
-        ));
-    }
-    for address in to.iter().chain(cc).chain(bcc) {
-        if !address.contains('@') || address.contains(['\r', '\n']) {
-            return Err(AppError::new(ErrorCode::ValidationFailed, "recipient address is invalid"));
-        }
-    }
-    Ok(())
 }

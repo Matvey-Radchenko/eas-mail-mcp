@@ -8,8 +8,8 @@ use base64::Engine as _;
 use eas_mail_protocol::{Command, EasError, ProfileKey, ProfileRegistry, build_binary_query};
 
 #[test]
-fn compiled_profile_has_fixed_endpoint_and_identity_rules() -> eas_mail_protocol::Result<()> {
-    let registry = ProfileRegistry::compiled();
+fn runtime_profile_has_fixed_endpoint_and_identity_rules() -> eas_mail_protocol::Result<()> {
+    let registry = ProfileRegistry::from_toml(include_str!("../../../profile.example.toml"))?;
     let key = ProfileKey::new("example")?;
     let profile = registry.require(&key)?;
     assert_eq!(profile.key(), "example");
@@ -26,7 +26,7 @@ fn compiled_profile_has_fixed_endpoint_and_identity_rules() -> eas_mail_protocol
     assert!(registry.require(&ProfileKey::new("missing")?).is_err());
     assert_eq!(registry.bundle_version(), "example-1");
     assert_eq!(registry.bundle_hash().len(), 64);
-    assert!(registry.development_only());
+    assert!(!registry.is_empty());
     Ok(())
 }
 

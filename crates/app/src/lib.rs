@@ -1,4 +1,4 @@
-//! Direct stdio MCP application for build-time managed EAS mailboxes.
+//! Direct stdio MCP application for locally managed EAS mailboxes.
 
 #![deny(missing_docs)]
 
@@ -13,6 +13,8 @@ mod keychain;
 /// Official rmcp stdio server and tool routing.
 pub mod mcp;
 mod model;
+mod platform;
+mod profiles;
 mod references;
 mod runtime;
 mod sanitize;
@@ -24,5 +26,6 @@ pub use keychain::{
     AccountSecret, KeychainStore, MemorySecretStore, SecretBundle, SecretStore, StoredPolicy,
 };
 pub use model::*;
+pub use profiles::{load_profile_bundle, load_profile_registry};
 pub use references::{Clock, IdGenerator, RandomIds, SystemClock};
 pub use runtime::Runtime;

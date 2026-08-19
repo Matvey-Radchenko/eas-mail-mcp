@@ -14,29 +14,13 @@ use toml_edit::DocumentMut;
 use super::*;
 
 #[test]
-fn supported_versions_are_exactly_bounded() {
-    for (kind, accepted, rejected) in [
-        (ClientKind::Codex, "0.133.0", "0.134.0"),
-        (ClientKind::Claude, "2.1.160", "2.2.0"),
-        (ClientKind::Opencode, "1.14.23", "2.0.0"),
-    ] {
-        assert!(require_supported(kind, accepted).is_ok());
-        assert!(require_supported(kind, rejected).is_err());
-    }
-    assert_eq!(version_parts("1.2.3"), Some((1, 2, 3)));
-    assert_eq!(version_parts("1.2"), None);
-    assert_eq!(version_parts("1.2.3.4"), None);
-    assert!(require_supported(ClientKind::Codex, "invalid").is_err());
-}
-
-#[test]
-fn black_box_executable_version_and_command_fail_closed() -> anyhow::Result<()> {
+fn executable_version_is_best_effort_diagnostics() -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
-    let success = script(directory.path(), "success", "echo 'tool 0.133.7'\nexit 0")?;
+    let success = script(directory.path(), "success", "echo 'tool 0.148.0-alpha.9'\nexit 0")?;
     let failure = script(directory.path(), "failure", "echo 'broken' >&2\nexit 7")?;
-    assert_eq!(detect_version(path_text(&success)?)?, "0.133.7");
-    assert!(detect_version(path_text(&failure)?).is_err());
-    assert!(detect_version("/missing/client").is_err());
+    assert_eq!(detect_version(path_text(&success)?).as_deref(), Some("tool 0.148.0-alpha.9"));
+    assert!(detect_version(path_text(&failure)?).is_none());
+    assert!(detect_version("/missing/client").is_none());
     assert!(command(path_text(&success)?, &["ignored"], false)?);
     assert!(!command(path_text(&failure)?, &["ignored"], true)?);
     assert!(command(path_text(&failure)?, &["ignored"], false).is_err());
@@ -55,23 +39,62 @@ fn black_box_client_command_has_a_hard_timeout() -> anyhow::Result<()> {
 }
 
 #[test]
-fn codex_approval_edit_preserves_document_and_prompts_all_writes() -> anyhow::Result<()> {
+fn codex_cleanup_preserves_document_and_removes_generated_write_overrides() -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("config.toml");
-    fs::write(&path, "# keep this comment\n[mcp_servers.eas-mail]\ncommand = \"/tmp/server\"\n")?;
-    configure_codex_approvals(&path)?;
+    fs::write(
+        &path,
+        concat!(
+            "# keep this comment\n",
+            "[mcp_servers.eas-mail]\n",
+            "command = \"/tmp/server\"\n",
+            "[mcp_servers.eas-mail.tools.mail_send]\n",
+            "approval_mode = \"approve\"\n",
+            "keep = true\n",
+            "[mcp_servers.eas-mail.tools.mail_reply]\n",
+            "approval_mode = \"prompt\"\n",
+            "[mcp_servers.eas-mail.tools.custom]\n",
+            "approval_mode = \"prompt\"\n",
+        ),
+    )?;
+    remove_codex_generated_approvals(&path)?;
     let content = fs::read_to_string(&path)?;
     assert!(content.contains("# keep this comment"));
     let document = content.parse::<DocumentMut>()?;
-    for tool in WRITE_TOOLS {
-        assert_eq!(
-            document["mcp_servers"][SERVER]["tools"][tool]["approval_mode"].as_str(),
-            Some("prompt")
-        );
-    }
+    let tools = document["mcp_servers"][SERVER]["tools"]
+        .as_table()
+        .ok_or_else(|| anyhow::anyhow!("tools table is missing"))?;
+    assert_eq!(tools["mail_send"]["keep"].as_bool(), Some(true));
+    assert!(tools["mail_send"].get("approval_mode").is_none());
+    assert!(tools.get("mail_reply").is_none());
+    assert_eq!(tools["custom"]["approval_mode"].as_str(), Some("prompt"));
     assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
     fs::write(&path, "not = [toml")?;
-    assert!(configure_codex_approvals(&path).is_err());
+    assert!(remove_codex_generated_approvals(&path).is_err());
+    Ok(())
+}
+
+#[test]
+fn codex_cleanup_is_a_noop_for_missing_and_unmanaged_settings() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let missing = directory.path().join("missing.toml");
+    remove_codex_generated_approvals(&missing)?;
+    assert!(!missing.exists());
+
+    for (index, content) in [
+        "theme = \"dark\"\n",
+        "[mcp_servers.other]\ncommand = \"other\"\n",
+        "[mcp_servers.eas-mail]\ncommand = \"server\"\n",
+        concat!("[mcp_servers.eas-mail.tools.mail_send]\n", "approval_mode = \"custom\"\n",),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let path = directory.path().join(format!("unmanaged-{index}.toml"));
+        fs::write(&path, content)?;
+        remove_codex_generated_approvals(&path)?;
+        assert_eq!(fs::read_to_string(path)?, content);
+    }
     Ok(())
 }
 
@@ -170,6 +193,7 @@ fn test_paths(root: &Path) -> Paths {
         support: root.join("support"),
         attachments: root.join("attachments"),
         config: root.join("config.toml"),
+        profiles: root.join("profiles.toml"),
         journal: root.join("operations.sqlite"),
     }
 }

@@ -4,8 +4,8 @@ use std::sync::Arc;
 use clap::Parser;
 use eas_mail_mcp::backend::{AccountBackend, EasMailbox};
 use eas_mail_mcp::{
-    AccountConfig, AccountSecret, MemorySecretStore, RandomIds, Runtime, SecretBundle, SecretStore,
-    SystemClock,
+    AccountConfig, AccountSecret, MemorySecretStore, Paths, RandomIds, Runtime, SecretBundle,
+    SecretStore, SystemClock, load_profile_registry,
 };
 use eas_mail_mcp_harness::MemoryJournal;
 use eas_mail_protocol::{HttpTransport, ProfileKey, ProfileRegistry};
@@ -43,7 +43,10 @@ async fn main() -> anyhow::Result<()> {
         confirm()?;
     }
     let password = read_password()?;
-    ProfileRegistry::compiled().require(&arguments.profile)?;
+    let paths = Paths::standard()?;
+    let profiles = load_profile_registry(&paths.profiles)?
+        .ok_or_else(|| anyhow::anyhow!("no endpoint profiles are configured"))?;
+    profiles.require(&arguments.profile)?;
     let account = AccountConfig {
         profile: arguments.profile,
         email: arguments.email.clone(),
@@ -52,10 +55,7 @@ async fn main() -> anyhow::Result<()> {
         write_enabled: arguments.self_write,
     };
     let (runtime, _temporary) =
-        runtime(&arguments.account_id, account, arguments.username, password.as_str())?;
-    if arguments.self_write {
-        anyhow::ensure!(runtime.authorize_client("codex-mcp-client", "0.133.0"));
-    }
+        runtime(&arguments.account_id, account, arguments.username, password.as_str(), &profiles)?;
     let report =
         check_account(&runtime, &arguments.account_id, &arguments.email, arguments.self_write)
             .await?;
@@ -76,8 +76,9 @@ fn runtime(
     account: AccountConfig,
     username: String,
     password: &str,
+    profiles: &ProfileRegistry,
 ) -> anyhow::Result<(Runtime, tempfile::TempDir)> {
-    let profile = ProfileRegistry::compiled().require(&account.profile)?;
+    let profile = profiles.require(&account.profile)?;
     let device_id = SecretBundle::device_id(profile.device_id_length())?;
     let mut bundle = SecretBundle::new();
     let hmac_key = bundle.hmac_key.clone();

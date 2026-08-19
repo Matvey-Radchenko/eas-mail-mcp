@@ -49,6 +49,7 @@ fn doctor_remote_wipe_purges_persistent_account_data() -> anyhow::Result<()> {
         support: directory.path().join("support"),
         attachments: directory.path().join("attachments"),
         config: directory.path().join("support/config.toml"),
+        profiles: directory.path().join("support/profiles.toml"),
         journal: directory.path().join("support/operations.sqlite"),
     };
     paths.ensure()?;

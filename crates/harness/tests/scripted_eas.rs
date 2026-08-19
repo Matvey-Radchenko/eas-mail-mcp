@@ -11,7 +11,7 @@ use eas_mail_protocol::protocol::{
 };
 use eas_mail_protocol::wbxml::{Element, encode};
 use eas_mail_protocol::{
-    CollectionKind, Command, EasClient, EasError, ProfileRegistry, RequestSafety, Transport,
+    CollectionKind, Command, EasClient, EasError, ProfileKey, RequestSafety, Transport,
 };
 
 #[tokio::test]
@@ -170,7 +170,7 @@ fn options_headers() -> BTreeMap<String, String> {
 
 fn account() -> AccountConfig {
     AccountConfig {
-        profile: ProfileRegistry::compiled().default_key(),
+        profile: ProfileKey::default(),
         email: "user@example.invalid".into(),
         username: "example_user".into(),
         enabled: true,

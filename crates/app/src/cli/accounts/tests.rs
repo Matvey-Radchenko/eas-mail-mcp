@@ -10,28 +10,39 @@ use super::*;
 
 #[test]
 fn explicit_setup_arguments_do_not_prompt() -> anyhow::Result<()> {
+    let profiles = crate::profiles::example_registry()?;
     let profile = ProfileKey::new("example")?;
-    let request = interactive_request(SetupArgs {
-        account_id: Some("work".into()),
-        profile: Some(profile.clone()),
-        email: Some("user@example.invalid".into()),
-        username: Some("example_user".into()),
-        password_stdin: true,
-        enable_writes: false,
-    })?;
+    let request = interactive_request(
+        SetupArgs {
+            profile_file: None,
+            account_id: Some("work".into()),
+            profile: Some(profile.clone()),
+            email: Some("user@example.invalid".into()),
+            username: Some("example_user".into()),
+            password_stdin: true,
+            enable_writes: false,
+            skip_clients: true,
+        },
+        &profiles,
+    )?;
     assert_eq!(request.account_id, "work");
     assert_eq!(request.profile, profile);
     assert!(request.password_stdin);
     assert!(!request.write_enabled);
     assert!(
-        interactive_request(SetupArgs {
-            account_id: Some(" ".into()),
-            profile: Some(ProfileKey::new("example")?),
-            email: Some("user@example.invalid".into()),
-            username: Some("example_user".into()),
-            password_stdin: true,
-            enable_writes: false,
-        })
+        interactive_request(
+            SetupArgs {
+                profile_file: None,
+                account_id: Some(" ".into()),
+                profile: Some(ProfileKey::new("example")?),
+                email: Some("user@example.invalid".into()),
+                username: Some("example_user".into()),
+                password_stdin: true,
+                enable_writes: false,
+                skip_clients: true,
+            },
+            &profiles
+        )
         .is_err()
     );
     Ok(())
@@ -99,6 +110,7 @@ fn paths(root: &std::path::Path) -> Paths {
         support: root.join("support"),
         attachments: root.join("attachments"),
         config: root.join("support/config.toml"),
+        profiles: root.join("support/profiles.toml"),
         journal: root.join("support/operations.sqlite"),
     }
 }

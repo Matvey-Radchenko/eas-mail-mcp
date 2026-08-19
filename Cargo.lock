@@ -506,7 +506,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -534,13 +534,14 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "eas-mail-mcp"
-version = "0.1.2"
+version = "0.2.0-beta.2"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
  "clap",
  "dirs",
+ "eas-mail-profile",
  "eas-mail-protocol",
  "futures",
  "hmac",
@@ -548,6 +549,7 @@ dependencies = [
  "json5",
  "keyring",
  "rand 0.9.5",
+ "rcgen",
  "rmcp",
  "rpassword",
  "rusqlite",
@@ -567,7 +569,7 @@ dependencies = [
 
 [[package]]
 name = "eas-mail-mcp-harness"
-version = "0.1.2"
+version = "0.2.0-beta.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -587,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "eas-mail-profile"
-version = "0.1.2"
+version = "0.2.0-beta.2"
 dependencies = [
  "base64 0.22.1",
  "rcgen",
@@ -600,7 +602,7 @@ dependencies = [
 
 [[package]]
 name = "eas-mail-protocol"
-version = "0.1.2"
+version = "0.2.0-beta.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -633,7 +635,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -836,9 +838,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.4.15"
+version = "0.4.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cb093c84e8bd9b188d4c4a8cb6579fc016968d14c99882163cd3ff402a4f155"
+checksum = "a9f37a958b41b3b19ee2707c06439c0e9e547e847223eb791ecb0cb821c65e27"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -1699,7 +1701,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2009,7 +2011,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2406,7 +2408,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3155,7 +3157,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.2"
+version = "0.2.0-beta.2"
 dependencies = [
  "anyhow",
  "clap",

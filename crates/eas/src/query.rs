@@ -1,5 +1,6 @@
 use base64::Engine as _;
 
+use crate::device::DEVICE_TYPE;
 use crate::{EasError, Result};
 
 /// Supported ActiveSync commands and compact-query command codes.
@@ -53,7 +54,6 @@ pub fn build_binary_query(
             "DeviceId must contain 1-32 ASCII letters or digits".into(),
         ));
     }
-    const DEVICE_TYPE: &str = "EasMailMCP";
     let mut payload = vec![141, command.code(), 0x09, 0x04, device_id.len() as u8];
     payload.extend_from_slice(device_id.as_bytes());
     if omit_policy_key {

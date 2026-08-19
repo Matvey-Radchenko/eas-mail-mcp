@@ -1,6 +1,6 @@
 use std::fs;
 
-use eas_mail_protocol::ProfileRegistry;
+use eas_mail_protocol::ProfileKey;
 
 use super::*;
 
@@ -9,7 +9,7 @@ fn config_round_trip_is_private_and_atomic() -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("nested/config.toml");
     let mut config = AppConfig::default();
-    config.accounts.insert("example.work".into(), example());
+    config.accounts.insert("example.work".into(), example()?);
     save_config(&path, &config)?;
     assert_eq!(load_config(&path)?, config);
     assert!(!directory.path().join("nested/.config-0.tmp").exists());
@@ -41,18 +41,20 @@ fn absent_and_invalid_configs_are_distinguished() -> anyhow::Result<()> {
 }
 
 #[test]
-fn account_identifiers_and_managed_domains_are_validated() {
+fn account_identifiers_and_managed_domains_are_validated() -> anyhow::Result<()> {
+    let profiles = crate::profiles::example_registry()?;
     let mut config = AppConfig::default();
     for id in ["", "has space", &"x".repeat(65)] {
         config.accounts.clear();
-        config.accounts.insert(id.into(), example());
+        config.accounts.insert(id.into(), example()?);
         assert_eq!(config.validate().map_err(code), Err(ErrorCode::ConfigInvalid));
     }
     config.accounts.clear();
-    let mut account = example();
+    let mut account = example()?;
     account.email = "user@example.com".into();
     config.accounts.insert("valid-id_1".into(), account);
-    assert_eq!(config.validate().map_err(code), Err(ErrorCode::ConfigInvalid));
+    assert_eq!(config.validate_profiles(&profiles).map_err(code), Err(ErrorCode::ConfigInvalid));
+    Ok(())
 }
 
 #[test]
@@ -62,6 +64,7 @@ fn custom_paths_create_only_private_runtime_directories() -> anyhow::Result<()> 
         support: directory.path().join("support"),
         attachments: directory.path().join("cache/attachments"),
         config: directory.path().join("support/config.toml"),
+        profiles: directory.path().join("support/profiles.toml"),
         journal: directory.path().join("support/operations.sqlite"),
     };
     paths.ensure()?;
@@ -72,14 +75,14 @@ fn custom_paths_create_only_private_runtime_directories() -> anyhow::Result<()> 
     Ok(())
 }
 
-fn example() -> AccountConfig {
-    AccountConfig {
-        profile: ProfileRegistry::compiled().default_key(),
+fn example() -> anyhow::Result<AccountConfig> {
+    Ok(AccountConfig {
+        profile: ProfileKey::new("example")?,
         email: "user@example.invalid".into(),
         username: "example_user".into(),
         enabled: true,
         write_enabled: false,
-    }
+    })
 }
 
 fn code(error: AppError) -> ErrorCode {

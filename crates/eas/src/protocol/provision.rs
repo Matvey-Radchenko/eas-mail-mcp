@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use crate::device::OPERATING_SYSTEM;
 use crate::wbxml::{decode, encode};
 use crate::{EasError, Result};
 
@@ -29,7 +30,7 @@ pub fn build_initial_provision() -> Result<Vec<u8>> {
     let mut set = element("Settings", "Set");
     push_text(&mut set, "Settings", "Model", "EAS Mail MCP");
     push_text(&mut set, "Settings", "FriendlyName", "EAS Mail MCP");
-    push_text(&mut set, "Settings", "OS", "macOS");
+    push_text(&mut set, "Settings", "OS", OPERATING_SYSTEM);
     push_text(&mut set, "Settings", "OSLanguage", "en");
     information.push(set);
     root.push(information);

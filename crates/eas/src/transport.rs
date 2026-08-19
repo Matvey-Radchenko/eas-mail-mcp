@@ -5,6 +5,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+use crate::device;
 use crate::{Command, EasError, Profile, Result, build_binary_query};
 
 #[cfg(not(test))]
@@ -70,17 +71,17 @@ pub struct HttpTransport {
 impl HttpTransport {
     /// Constructs a transport with mandatory TLS and disabled redirects.
     pub fn new(
-        profile: Profile,
+        profile: &Profile,
         username: String,
         password: String,
         device_id: String,
     ) -> Result<Self> {
-        let client = strict_client(profile.extra_ca_pem)?;
+        let client = strict_client(profile.extra_ca_pem.as_deref())?;
         profile.validate_device_id(&device_id)?;
         build_binary_query(Command::Sync, &device_id, 0, false)?;
         Ok(Self {
             client,
-            profile,
+            profile: profile.clone(),
             credentials: Mutex::new(Credentials { username, password, device_id }),
             #[cfg(test)]
             endpoint_override: None,
@@ -112,7 +113,7 @@ impl HttpTransport {
 
     async fn normalize(&self, response: reqwest::Response) -> Result<TransportResponse> {
         let url = response.url();
-        if url.scheme() != "https" || url.host_str() != Some(self.profile.host) {
+        if url.scheme() != "https" || url.host_str() != Some(self.profile.host.as_str()) {
             return Err(EasError::Protocol("Exchange response origin changed".into()));
         }
         let status = response.status().as_u16();
@@ -166,7 +167,7 @@ fn strict_client(extra_ca_pem: Option<&[u8]>) -> Result<reqwest::Client> {
         .http1_only()
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(60))
-        .user_agent(format!("EasMailMCP/{} (macOS)", env!("CARGO_PKG_VERSION")));
+        .user_agent(device::user_agent(env!("CARGO_PKG_VERSION")));
     if let Some(pem) = extra_ca_pem {
         let certificate = reqwest::Certificate::from_pem(pem)
             .map_err(|error| EasError::InvalidConfiguration(error.to_string()))?;

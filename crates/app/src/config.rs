@@ -1,10 +1,10 @@
 use eas_mail_protocol::{ProfileKey, ProfileRegistry};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs::{self, File, OpenOptions};
-use std::io::Write as _;
+use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::platform;
 use crate::{AppError, ErrorCode, Result};
 
 /// Non-secret account configuration.
@@ -26,10 +26,23 @@ pub struct AccountConfig {
 }
 
 impl AccountConfig {
-    /// Validates identity against the fixed profile.
-    pub fn validate(&self) -> Result<()> {
-        let profile = ProfileRegistry::compiled().require(&self.profile).map_err(AppError::from)?;
+    /// Validates identity against a loaded local profile.
+    pub fn validate(&self, profiles: &ProfileRegistry) -> Result<()> {
+        self.validate_shape()?;
+        let profile = profiles.require(&self.profile).map_err(AppError::from)?;
         profile.validate_identity(&self.email, &self.username).map_err(AppError::from)
+    }
+
+    pub(crate) fn validate_shape(&self) -> Result<()> {
+        if self.email.trim().is_empty()
+            || !self.email.contains('@')
+            || self.email.chars().any(char::is_control)
+            || self.username.trim().is_empty()
+            || self.username.chars().any(char::is_control)
+        {
+            return Err(AppError::new(ErrorCode::ConfigInvalid, "account identity is invalid"));
+        }
+        Ok(())
     }
 }
 
@@ -60,7 +73,16 @@ impl AppConfig {
             if !valid_account_id(account_id) {
                 return Err(AppError::new(ErrorCode::ConfigInvalid, "invalid account identifier"));
             }
-            account.validate()?;
+            account.validate_shape()?;
+        }
+        Ok(())
+    }
+
+    /// Validates every account against the currently loaded profile registry.
+    pub fn validate_profiles(&self, profiles: &ProfileRegistry) -> Result<()> {
+        self.validate()?;
+        for account in self.accounts.values() {
+            account.validate(profiles)?;
         }
         Ok(())
     }
@@ -75,20 +97,21 @@ pub struct Paths {
     pub attachments: PathBuf,
     /// TOML configuration path.
     pub config: PathBuf,
+    /// Runtime endpoint profile path.
+    pub profiles: PathBuf,
     /// Minimal operation journal path.
     pub journal: PathBuf,
 }
 
 impl Paths {
-    /// Returns standard macOS per-user paths.
+    /// Returns standard per-user paths on a supported operating system.
     pub fn standard() -> Result<Self> {
-        let home = dirs::home_dir().ok_or_else(|| {
-            AppError::new(ErrorCode::ConfigInvalid, "cannot determine the home directory")
+        let (support, cache) = platform::standard_directories().ok_or_else(|| {
+            AppError::new(ErrorCode::ConfigInvalid, "this operating system is not supported")
         })?;
-        let support = home.join("Library/Application Support/EAS Mail MCP");
-        let cache = home.join("Library/Caches/EAS Mail MCP");
         Ok(Self {
             config: support.join("config.toml"),
+            profiles: support.join("profiles.toml"),
             journal: support.join("operations.sqlite"),
             attachments: cache.join("attachments"),
             support,
@@ -98,8 +121,7 @@ impl Paths {
     /// Creates private runtime directories.
     pub fn ensure(&self) -> Result<()> {
         for directory in [&self.support, &self.attachments] {
-            fs::create_dir_all(directory).map_err(storage_error)?;
-            set_private_directory(directory)?;
+            platform::ensure_private_directory(directory).map_err(storage_error)?;
         }
         Ok(())
     }
@@ -123,15 +145,10 @@ pub fn save_config(path: &Path, config: &AppConfig) -> Result<()> {
     let parent = path.parent().ok_or_else(|| {
         AppError::new(ErrorCode::ConfigInvalid, "configuration path has no parent")
     })?;
-    fs::create_dir_all(parent).map_err(storage_error)?;
-    set_private_directory(parent)?;
-    let temporary = parent.join(format!(".config-{}.tmp", std::process::id()));
+    platform::ensure_private_directory(parent).map_err(storage_error)?;
     let document = toml::to_string_pretty(config)
         .map_err(|_| AppError::new(ErrorCode::StorageError, "cannot serialize configuration"))?;
-    let mut file = private_file(&temporary)?;
-    file.write_all(document.as_bytes()).map_err(storage_error)?;
-    file.sync_all().map_err(storage_error)?;
-    fs::rename(&temporary, path).map_err(storage_error)
+    platform::atomic_write(path, document.as_bytes()).map_err(storage_error)
 }
 
 fn valid_account_id(value: &str) -> bool {
@@ -148,29 +165,6 @@ const fn enabled_by_default() -> bool {
 
 fn storage_error(_: std::io::Error) -> AppError {
     AppError::new(ErrorCode::StorageError, "local application storage is unavailable")
-}
-
-#[cfg(unix)]
-fn set_private_directory(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(storage_error)
-}
-
-#[cfg(not(unix))]
-fn set_private_directory(_: &Path) -> Result<()> {
-    Err(AppError::new(ErrorCode::ConfigInvalid, "only macOS is supported"))
-}
-
-#[cfg(unix)]
-fn private_file(path: &Path) -> Result<File> {
-    use std::os::unix::fs::OpenOptionsExt as _;
-    OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .open(path)
-        .map_err(storage_error)
 }
 
 #[cfg(test)]

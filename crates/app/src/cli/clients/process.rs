@@ -23,22 +23,21 @@ pub(super) fn command(executable: &str, arguments: &[&str], allow_failure: bool)
     }
 }
 
-pub(super) fn detect_version(executable: &str) -> Result<String> {
-    let output = output_with_timeout(executable, &["--version"], CLIENT_COMMAND_TIMEOUT)?;
+pub(super) fn detect_version(executable: &str) -> Option<String> {
+    let output = output_with_timeout(executable, &["--version"], CLIENT_COMMAND_TIMEOUT).ok()?;
     if !output.status.success() {
-        return Err(AppError::new(ErrorCode::ConfigInvalid, "cannot determine AI client version"));
+        return None;
     }
-    let text = format!(
-        "{} {}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    text.split(|character: char| !character.is_ascii_digit() && character != '.')
-        .find(|part| version_parts(part).is_some())
-        .map(str::to_owned)
-        .ok_or_else(|| {
-            AppError::new(ErrorCode::ConfigInvalid, "cannot determine AI client version")
+    [output.stdout, output.stderr]
+        .into_iter()
+        .flat_map(|bytes| {
+            String::from_utf8_lossy(&bytes)
+                .lines()
+                .map(str::trim)
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
         })
+        .find(|line| !line.is_empty())
 }
 
 pub(super) fn output_with_timeout(
@@ -64,33 +63,6 @@ pub(super) fn output_with_timeout(
     child.wait_with_output().map_err(|_| {
         AppError::new(ErrorCode::ConfigInvalid, "cannot read AI client command output")
     })
-}
-
-pub(super) fn require_supported(client: ClientKind, version: &str) -> Result<()> {
-    let Some((major, minor, _)) = version_parts(version) else {
-        return Err(AppError::new(ErrorCode::ConfigInvalid, "AI client version is invalid"));
-    };
-    let supported = match client {
-        ClientKind::Codex => major == 0 && minor == 133,
-        ClientKind::Claude => major == 2 && minor == 1,
-        ClientKind::Opencode => major == 1,
-    };
-    if supported {
-        Ok(())
-    } else {
-        Err(AppError::new(
-            ErrorCode::ConfigInvalid,
-            "unknown AI client version; no configuration was changed",
-        ))
-    }
-}
-
-pub(super) fn version_parts(value: &str) -> Option<(u64, u64, u64)> {
-    let mut parts = value.split('.').map(|part| part.parse::<u64>().ok());
-    match (parts.next()?, parts.next()?, parts.next()?, parts.next()) {
-        (Some(major), Some(minor), Some(patch), None) => Some((major, minor, patch)),
-        _ => None,
-    }
 }
 
 pub(super) const fn client_name(client: ClientKind) -> &'static str {

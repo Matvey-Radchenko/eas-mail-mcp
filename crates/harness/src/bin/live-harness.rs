@@ -2,7 +2,7 @@ use std::io::{self, Write as _};
 use std::sync::Arc;
 
 use clap::Parser;
-use eas_mail_mcp::{Paths, Runtime, load_config};
+use eas_mail_mcp::{Paths, Runtime, load_config, load_profile_registry};
 
 #[path = "live_harness/checks.rs"]
 mod checks;
@@ -25,11 +25,10 @@ async fn main() -> anyhow::Result<()> {
         confirm()?;
     }
     let paths = Paths::standard()?;
+    let profiles = load_profile_registry(&paths.profiles)?
+        .ok_or_else(|| anyhow::anyhow!("no endpoint profiles are configured"))?;
     let config = load_config(&paths.config)?;
-    let runtime = Arc::new(Runtime::production(config.clone(), &paths)?);
-    if arguments.self_write {
-        anyhow::ensure!(runtime.authorize_client("codex-mcp-client", "0.133.0"));
-    }
+    let runtime = Arc::new(Runtime::production(config.clone(), &paths, &profiles)?);
     let mut reports = Vec::new();
     for (account_id, account) in config.accounts.into_iter().filter(|(_, account)| account.enabled)
     {

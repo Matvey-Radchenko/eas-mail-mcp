@@ -21,9 +21,9 @@ validated profile field because EAS front doors can impose different limits.
 Unsupported policy blocks the account. Remote wipe removes all application data
 scoped to that account.
 
-Processes running as the same user are trusted. MCP client identity is a
-compatibility guard, not authentication, and client `ask` policy is not an
-authorization boundary.
+Processes running as the same user are trusted. MCP client identity and version
+are diagnostics, not authentication or authorization. Client approval policy is
+an optional user-experience control and does not replace account opt-in.
 
 ## Consequences
 

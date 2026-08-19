@@ -39,6 +39,7 @@ fn pending_is_not_a_terminal_finish_state() -> anyhow::Result<()> {
 #[cfg(unix)]
 #[test]
 fn journal_file_is_private() -> anyhow::Result<()> {
+    use std::fs;
     use std::os::unix::fs::PermissionsExt as _;
 
     let directory = tempfile::tempdir()?;

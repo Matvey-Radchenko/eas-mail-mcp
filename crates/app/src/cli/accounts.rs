@@ -23,13 +23,16 @@ pub(super) struct AddRequest {
     write_enabled: bool,
 }
 
-pub(super) fn interactive_request(arguments: SetupArgs) -> Result<AddRequest> {
+pub(super) fn interactive_request(
+    arguments: SetupArgs,
+    profiles: &ProfileRegistry,
+) -> Result<AddRequest> {
     let account_id = required(arguments.account_id, "Account ID")?;
     let profile = match arguments.profile {
         Some(value) => value,
-        None => ProfileKey::new(prompt(&profile_prompt())?).map_err(AppError::from)?,
+        None => ProfileKey::new(prompt(&profile_prompt(profiles))?).map_err(AppError::from)?,
     };
-    ProfileRegistry::compiled().require(&profile).map_err(AppError::from)?;
+    profiles.require(&profile).map_err(AppError::from)?;
     Ok(AddRequest {
         account_id,
         profile,
@@ -40,12 +43,24 @@ pub(super) fn interactive_request(arguments: SetupArgs) -> Result<AddRequest> {
     })
 }
 
-pub(super) async fn run(paths: &Paths, command: AccountCommand) -> Result<serde_json::Value> {
+pub(super) async fn run(
+    paths: &Paths,
+    command: AccountCommand,
+    profiles: Option<&ProfileRegistry>,
+) -> Result<serde_json::Value> {
     match command {
         AccountCommand::List => list(paths),
-        AccountCommand::Add(arguments) => add(paths, request(arguments)).await,
+        AccountCommand::Add(arguments) => {
+            add(paths, request(arguments), require_profiles(profiles)?).await
+        }
         AccountCommand::UpdatePassword(arguments) => {
-            update_password(paths, &arguments.account_id, arguments.password_stdin).await
+            update_password(
+                paths,
+                &arguments.account_id,
+                arguments.password_stdin,
+                require_profiles(profiles)?,
+            )
+            .await
         }
         AccountCommand::SetWrites(arguments) => {
             set_writes(paths, &arguments.account_id, matches!(arguments.value, Toggle::On))
@@ -54,7 +69,11 @@ pub(super) async fn run(paths: &Paths, command: AccountCommand) -> Result<serde_
     }
 }
 
-pub(super) async fn add(paths: &Paths, request: AddRequest) -> Result<serde_json::Value> {
+pub(super) async fn add(
+    paths: &Paths,
+    request: AddRequest,
+    profiles: &ProfileRegistry,
+) -> Result<serde_json::Value> {
     let mut config = load_config(&paths.config)?;
     if config.accounts.contains_key(&request.account_id) {
         return Err(AppError::new(
@@ -69,11 +88,11 @@ pub(super) async fn add(paths: &Paths, request: AddRequest) -> Result<serde_json
         enabled: true,
         write_enabled: request.write_enabled,
     };
-    account.validate()?;
+    account.validate(profiles)?;
     let password = read_password(request.password_stdin)?;
     validate_password(&password)?;
     let store = secret_store(paths);
-    let profile = ProfileRegistry::compiled().require(&request.profile).map_err(AppError::from)?;
+    let profile = profiles.require(&request.profile).map_err(AppError::from)?;
     let candidate = AccountSecret {
         password: password.to_string(),
         device_id: SecretBundle::device_id(profile.device_id_length())?,
@@ -81,7 +100,7 @@ pub(super) async fn add(paths: &Paths, request: AddRequest) -> Result<serde_json
         policy: None,
     };
     let original = replace_secret(&store, &request.account_id, candidate.clone())?;
-    let verification = verify(&request.account_id, &account, Arc::clone(&store)).await;
+    let verification = verify(&request.account_id, &account, Arc::clone(&store), profiles).await;
     let folders = match verification {
         Ok(value) => value,
         Err(error) => {
@@ -106,6 +125,7 @@ async fn update_password(
     paths: &Paths,
     account_id: &str,
     password_stdin: bool,
+    profiles: &ProfileRegistry,
 ) -> Result<serde_json::Value> {
     let config = load_config(&paths.config)?;
     let account = config.accounts.get(account_id).cloned().ok_or_else(|| {
@@ -115,7 +135,7 @@ async fn update_password(
     validate_password(&password)?;
     let store = secret_store(paths);
     let (original, candidate) = replace_password(&store, account_id, &password)?;
-    let verification = verify(account_id, &account, Arc::clone(&store)).await;
+    let verification = verify(account_id, &account, Arc::clone(&store), profiles).await;
     match verification {
         Ok(folders) => Ok(serde_json::json!({
             "account_id": account_id,
@@ -133,8 +153,9 @@ async fn verify(
     account_id: &str,
     account: &AccountConfig,
     store: Arc<dyn SecretStore>,
+    profiles: &ProfileRegistry,
 ) -> Result<usize> {
-    let mailbox = EasMailbox::production(account_id.to_owned(), account.clone(), store)?;
+    let mailbox = EasMailbox::production(account_id.to_owned(), account.clone(), store, profiles)?;
     mailbox.folders().await.map(|folders| folders.len())
 }
 
@@ -193,14 +214,17 @@ fn request(arguments: AddAccountArgs) -> AddRequest {
     }
 }
 
-fn profile_prompt() -> String {
-    let keys = ProfileRegistry::compiled()
-        .profiles()
-        .iter()
-        .map(|profile| profile.key())
-        .collect::<Vec<_>>()
-        .join("/");
+fn profile_prompt(profiles: &ProfileRegistry) -> String {
+    let keys =
+        profiles.profiles().iter().map(|profile| profile.key()).collect::<Vec<_>>().join("/");
     format!("Profile ({keys})")
+}
+
+fn require_profiles(profiles: Option<&ProfileRegistry>) -> Result<&ProfileRegistry> {
+    profiles.ok_or_else(|| {
+        AppError::new(ErrorCode::ConfigInvalid, "no EAS endpoint profiles are configured")
+            .remediation("Run eas-mail-mcp setup or profile import")
+    })
 }
 
 fn required(value: Option<String>, label: &str) -> Result<String> {

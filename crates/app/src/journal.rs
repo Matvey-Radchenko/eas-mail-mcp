@@ -1,11 +1,11 @@
 use hmac::{Hmac, Mac as _};
 use rusqlite::{Connection, OptionalExtension as _, TransactionBehavior, params};
 use sha2::Sha256;
-use std::fs::{self, OpenOptions};
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use crate::platform;
 use crate::{AppError, ErrorCode, Result};
 
 /// Durable operation state stored without mailbox content.
@@ -70,6 +70,8 @@ pub struct JournalBegin {
 
 /// I/O boundary for idempotent external mutations.
 pub trait OperationJournal: Send + Sync {
+    /// Returns one existing operation without changing its state.
+    fn lookup(&self, operation_id: &str) -> Result<Option<JournalRecord>>;
     /// Inserts a pending row or returns an existing matching row.
     fn begin(&self, record: &JournalRecord) -> Result<JournalBegin>;
     /// Changes durable operation state.
@@ -126,31 +128,32 @@ pub(crate) fn with_storage_write_lock<T>(
 
 fn private_connection(path: &Path) -> Result<Connection> {
     let parent = path.parent().ok_or_else(storage_error)?;
-    fs::create_dir_all(parent).map_err(|_| storage_error())?;
+    platform::ensure_private_directory(parent).map_err(|_| storage_error())?;
     create_private_file(path)?;
     let connection = Connection::open(path).map_err(|_| storage_error())?;
     connection.busy_timeout(Duration::from_secs(5)).map_err(|_| storage_error())?;
     Ok(connection)
 }
 
-#[cfg(unix)]
 fn create_private_file(path: &Path) -> Result<()> {
-    use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(path)
-        .map_err(|_| storage_error())?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).map_err(|_| storage_error())
-}
-
-#[cfg(not(unix))]
-fn create_private_file(_: &Path) -> Result<()> {
-    Err(storage_error())
+    platform::open_private_append(path).map(|_| ()).map_err(|_| storage_error())
 }
 
 impl OperationJournal for SqliteJournal {
+    fn lookup(&self, operation_id: &str) -> Result<Option<JournalRecord>> {
+        self.connection
+            .lock()
+            .map_err(|_| storage_error())?
+            .query_row(
+                "SELECT operation_id, account_id, kind, payload_hmac, client_id, status
+                 FROM operations WHERE operation_id=?1",
+                [operation_id],
+                row_to_record,
+            )
+            .optional()
+            .map_err(|_| storage_error())
+    }
+
     fn begin(&self, record: &JournalRecord) -> Result<JournalBegin> {
         let mut connection = self.connection.lock().map_err(|_| storage_error())?;
         let transaction = connection

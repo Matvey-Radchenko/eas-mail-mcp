@@ -113,7 +113,6 @@ async fn read_contract_covers_selection_sync_search_and_calendar() -> anyhow::Re
 async fn all_write_tools_return_durable_success() -> anyhow::Result<()> {
     let backend = Arc::new(FakeBackend::new("work"));
     let (runtime, _directory) = runtime(vec![backend.clone()])?;
-    assert!(runtime.authorize_client("claude-ai", "0.1.0"));
     let mail_ref = first_mail_ref(&runtime).await?;
 
     let marked = runtime
@@ -156,7 +155,6 @@ async fn write_failures_are_journaled_and_replayed_without_retry() -> anyhow::Re
     ] {
         let backend = Arc::new(FakeBackend::new("work"));
         let (runtime, _directory) = runtime(vec![backend.clone()])?;
-        assert!(runtime.authorize_client("OpenCode", "1.14.23"));
         let mail_ref = first_mail_ref(&runtime).await?;
         backend.set_failure(Some(code))?;
         let input = MarkReadInput { mail_ref, is_read: true, idempotency_key: uuid(4) };
@@ -196,13 +194,6 @@ async fn runtime_rejects_invalid_boundaries_and_account_selection() -> anyhow::R
             .map(|error| error.code),
         Some(ErrorCode::ValidationFailed)
     );
-    assert!(!runtime.authorize_client("codex-mcp-client", "0.132.0"));
-    assert!(!runtime.authorize_client("codex-mcp-client", "0.133.bad"));
-    assert!(!runtime.authorize_client("evil-codex-mcp-client", "0.133.0"));
-    assert!(!runtime.authorize_client("Claude Code", "2.1.160"));
-    assert!(!runtime.authorize_client("claude-ai", "0.1.0-extra"));
-    assert!(!runtime.authorize_client("OpenCode", "1.14"));
-
     let duplicate = Runtime::with_dependencies(
         vec![backend.clone(), backend],
         Arc::new(MemoryJournal::default()),
@@ -225,10 +216,9 @@ async fn runtime_rejects_invalid_boundaries_and_account_selection() -> anyhow::R
 }
 
 #[tokio::test]
-async fn account_and_client_write_gates_are_independent() -> anyhow::Result<()> {
+async fn account_write_gate_blocks_mutations() -> anyhow::Result<()> {
     let disabled = Arc::new(FakeBackend::new("work").with_writes_enabled(false));
     let (runtime, _directory) = runtime(vec![disabled])?;
-    assert!(runtime.authorize_client("codex-mcp-client", "0.133.0"));
     let mail_ref = first_mail_ref(&runtime).await?;
     assert_eq!(
         runtime

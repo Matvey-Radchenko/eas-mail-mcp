@@ -1,4 +1,4 @@
-//! Validation for build-time EAS endpoint profile bundles.
+//! Validation for portable runtime EAS endpoint profile bundles.
 
 #![deny(missing_docs)]
 
@@ -7,29 +7,26 @@ mod validation;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 
-pub use validation::{normalize_fingerprint, valid_profile_key};
+pub use validation::{certificate_fingerprint, normalize_fingerprint, valid_profile_key};
 
-/// Versioned collection of endpoint profiles embedded at build time.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+/// Versioned collection of endpoint profiles stored in one portable TOML file.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileBundle {
     /// Profile schema version. Version one is currently supported.
     pub schema_version: u32,
     /// Operator-defined version shown in diagnostics.
     pub bundle_version: String,
-    /// Prevents an example profile from being used for release bundles.
-    #[serde(default)]
-    pub development_only: bool,
-    /// Fixed endpoints available to the compiled application.
+    /// Endpoints available to the local application.
     pub profiles: Vec<ProfileSpec>,
 }
 
 /// One fixed Exchange ActiveSync endpoint.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProfileSpec {
     /// Stable identifier persisted in account configuration.
@@ -49,42 +46,29 @@ pub struct ProfileSpec {
 }
 
 /// Supported TLS trust modes.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 pub enum TrustSpec {
     /// Use the operating system trust store.
     System,
-    /// Trust only the specified embedded PEM certificate.
+    /// Trust only the specified inline PEM certificate.
     ExclusivePem {
-        /// PEM path relative to the profile bundle.
-        pem: PathBuf,
+        /// Exactly one PEM-encoded certificate, stored inline.
+        pem: String,
         /// SHA-256 fingerprint of the certificate DER bytes.
         sha256: String,
     },
 }
 
-/// A validated profile and its optional trust anchor.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VerifiedProfile {
-    /// Validated source fields.
-    pub spec: ProfileSpec,
-    /// PEM bytes for exclusive trust, if configured.
-    pub pem: Option<Vec<u8>>,
-    /// Canonical PEM source path, if configured.
-    pub pem_source: Option<PathBuf>,
-}
-
-/// A validated profile bundle ready for code generation.
+/// A validated runtime profile bundle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedBundle {
     /// Validated source manifest.
     pub manifest: ProfileBundle,
-    /// Profiles with verified trust material.
-    pub profiles: Vec<VerifiedProfile>,
-    /// Hash of manifest bytes and referenced trust material.
+    /// Hash of the exact parsed TOML bytes.
     pub hash: String,
-    /// Resolved manifest path.
-    pub source: PathBuf,
+    /// Resolved source path when loaded from the filesystem.
+    pub source: Option<PathBuf>,
 }
 
 /// A redacted profile validation error.
@@ -99,41 +83,37 @@ pub enum ProfileError {
     /// One or more profile fields violate the schema constraints.
     #[error("invalid profile bundle: {0}")]
     Invalid(String),
-    /// Referenced trust material could not be read or verified.
+    /// Inline trust material could not be verified.
     #[error("invalid profile trust material: {0}")]
     Trust(String),
-    /// A development-only profile cannot produce release artifacts.
-    #[error("development-only profile bundles cannot produce release artifacts")]
-    DevelopmentOnly,
 }
 
-/// Loads and validates a profile bundle and all referenced trust material.
+/// Loads and validates a profile bundle without following a symlink or reparse point.
 pub fn load(path: &Path) -> Result<VerifiedBundle, ProfileError> {
+    validation::reject_link(path)?;
     let source = path.canonicalize().map_err(|_| ProfileError::Read)?;
     let input = fs::read(&source).map_err(|_| ProfileError::Read)?;
-    let manifest = toml::from_slice::<ProfileBundle>(&input).map_err(|_| ProfileError::Toml)?;
-    validation::validate_manifest(&manifest)?;
-    let parent = source.parent().ok_or(ProfileError::Read)?;
-    let mut hasher = Sha256::new();
-    hasher.update((input.len() as u64).to_le_bytes());
-    hasher.update(&input);
-    let mut profiles = Vec::with_capacity(manifest.profiles.len());
-    for spec in &manifest.profiles {
-        let trust = validation::load_trust(parent, &spec.trust)?;
-        let pem = trust.pem;
-        if let Some(bytes) = &pem {
-            hasher.update((bytes.len() as u64).to_le_bytes());
-            hasher.update(bytes);
-        }
-        profiles.push(VerifiedProfile { spec: spec.clone(), pem, pem_source: trust.source });
-    }
-    let hash = hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
-    Ok(VerifiedBundle { manifest, profiles, hash, source })
+    let mut bundle = parse_bytes(&input)?;
+    bundle.source = Some(source);
+    Ok(bundle)
 }
 
-/// Rejects development-only bundles before release artifact creation.
-pub fn require_release(bundle: &VerifiedBundle) -> Result<(), ProfileError> {
-    if bundle.manifest.development_only { Err(ProfileError::DevelopmentOnly) } else { Ok(()) }
+/// Parses and validates an in-memory profile bundle.
+pub fn parse(input: &str) -> Result<VerifiedBundle, ProfileError> {
+    parse_bytes(input.as_bytes())
+}
+
+/// Serializes a validated bundle into stable, human-readable TOML.
+pub fn serialize(bundle: &ProfileBundle) -> Result<String, ProfileError> {
+    validation::validate_manifest(bundle)?;
+    toml::to_string_pretty(bundle).map_err(|_| ProfileError::Toml)
+}
+
+fn parse_bytes(input: &[u8]) -> Result<VerifiedBundle, ProfileError> {
+    let manifest = toml::from_slice::<ProfileBundle>(input).map_err(|_| ProfileError::Toml)?;
+    validation::validate_manifest(&manifest)?;
+    let hash = Sha256::digest(input).iter().map(|byte| format!("{byte:02x}")).collect();
+    Ok(VerifiedBundle { manifest, hash, source: None })
 }
 
 #[cfg(test)]

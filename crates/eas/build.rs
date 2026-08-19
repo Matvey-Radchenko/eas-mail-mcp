@@ -1,4 +1,3 @@
-use eas_mail_profile::{VerifiedBundle, load};
 use serde::Deserialize;
 use std::env;
 use std::error::Error;
@@ -24,11 +23,8 @@ struct TagSpec {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let manifest = PathBuf::from(required_environment("CARGO_MANIFEST_DIR")?);
-    let workspace = manifest.join("../..");
     let spec_dir = manifest.join("../../spec/codepages");
     println!("cargo:rerun-if-changed={}", spec_dir.display());
-    println!("cargo:rerun-if-env-changed=EAS_MAIL_PROFILE_BUNDLE");
-    generate_profiles(&workspace)?;
     let mut paths = read_paths(&spec_dir)?;
     paths.sort();
 
@@ -96,58 +92,4 @@ fn validate(pages: &[PageSpec]) -> io::Result<()> {
 
 fn required_environment(name: &str) -> io::Result<std::ffi::OsString> {
     env::var_os(name).ok_or_else(|| io::Error::other(format!("{name} is not set")))
-}
-
-fn generate_profiles(workspace: &Path) -> Result<(), Box<dyn Error>> {
-    let configured = env::var_os("EAS_MAIL_PROFILE_BUNDLE").map(PathBuf::from);
-    let source = match configured {
-        Some(path) if path.is_absolute() => path,
-        Some(path) => workspace.join(path),
-        None => workspace.join("profile.example.toml"),
-    };
-    let bundle = load(&source)?;
-    println!("cargo:rerun-if-changed={}", bundle.source.display());
-    for profile in &bundle.profiles {
-        if let Some(path) = &profile.pem_source {
-            println!("cargo:rerun-if-changed={}", path.display());
-        }
-    }
-    let output = PathBuf::from(required_environment("OUT_DIR")?);
-    let generated = render_profiles(&bundle, &output)?;
-    fs::write(output.join("profiles.rs"), generated)?;
-    Ok(())
-}
-
-fn render_profiles(bundle: &VerifiedBundle, output: &Path) -> Result<String, Box<dyn Error>> {
-    let mut generated = String::new();
-    writeln!(generated, "static COMPILED_PROFILES: &[Profile] = &[")?;
-    for (index, verified) in bundle.profiles.iter().enumerate() {
-        let profile = &verified.spec;
-        writeln!(generated, "    Profile {{")?;
-        writeln!(generated, "        key: {:?},", profile.id)?;
-        writeln!(generated, "        display_name: {:?},", profile.display_name)?;
-        writeln!(generated, "        host: {:?},", profile.host)?;
-        writeln!(generated, "        email_domains: &{:?},", profile.email_domains)?;
-        writeln!(generated, "        username_realm: {:?},", profile.username_realm)?;
-        writeln!(generated, "        device_id_length: {},", profile.device_id_length)?;
-        if let Some(pem) = &verified.pem {
-            let name = format!("profile-ca-{index}.pem");
-            fs::write(output.join(&name), pem)?;
-            writeln!(
-                generated,
-                "        extra_ca_pem: Some(include_bytes!(concat!(env!(\"OUT_DIR\"), \"/{name}\"))),"
-            )?;
-        } else {
-            writeln!(generated, "        extra_ca_pem: None,")?;
-        }
-        writeln!(generated, "    }},")?;
-    }
-    writeln!(generated, "];")?;
-    writeln!(generated, "static COMPILED_REGISTRY: ProfileRegistry = ProfileRegistry {{")?;
-    writeln!(generated, "    bundle_version: {:?},", bundle.manifest.bundle_version)?;
-    writeln!(generated, "    bundle_hash: {:?},", bundle.hash)?;
-    writeln!(generated, "    development_only: {},", bundle.manifest.development_only)?;
-    writeln!(generated, "    profiles: COMPILED_PROFILES,")?;
-    writeln!(generated, "}};")?;
-    Ok(generated)
 }

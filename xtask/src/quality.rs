@@ -5,11 +5,12 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::command::{output, run, run_env};
-use crate::{files, goldens, profile, public_audit};
+use crate::{files, goldens, npm, profile, public_audit};
 
 pub(crate) fn check(root: &Path) -> Result<()> {
     verify_toolchain(root)?;
-    profile::verify(root, Path::new("profile.example.toml"), false)?;
+    profile::verify(root, Path::new("profile.example.toml"))?;
+    npm::verify(root)?;
     run(root, "cargo", ["fmt", "--all", "--", "--check"])?;
     run(
         root,

@@ -1,13 +1,20 @@
 use std::fmt;
 use std::str::FromStr;
 
+use eas_mail_profile::{TrustSpec, VerifiedBundle, valid_profile_key};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{EasError, Result};
 
-/// Validated identifier of an endpoint profile embedded at build time.
+/// Validated identifier of a locally configured endpoint profile.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProfileKey(String);
+
+impl Default for ProfileKey {
+    fn default() -> Self {
+        Self("default".into())
+    }
+}
 
 impl ProfileKey {
     /// Parses a stable lowercase profile identifier.
@@ -60,51 +67,51 @@ impl<'de> Deserialize<'de> for ProfileKey {
     }
 }
 
-/// Immutable Exchange endpoint profile compiled into the binary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Validated Exchange endpoint profile loaded from local configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Profile {
-    key: &'static str,
-    display_name: &'static str,
-    pub(crate) host: &'static str,
-    email_domains: &'static [&'static str],
-    username_realm: Option<&'static str>,
+    key: ProfileKey,
+    display_name: String,
+    pub(crate) host: String,
+    email_domains: Vec<String>,
+    username_realm: Option<String>,
     device_id_length: u8,
-    pub(crate) extra_ca_pem: Option<&'static [u8]>,
+    pub(crate) extra_ca_pem: Option<Vec<u8>>,
 }
 
 impl Profile {
     /// Returns this profile's stable identifier.
     #[must_use]
-    pub const fn key(self) -> &'static str {
-        self.key
+    pub fn key(&self) -> &str {
+        self.key.as_str()
     }
 
     /// Returns this profile's human-readable name.
     #[must_use]
-    pub const fn display_name(self) -> &'static str {
-        self.display_name
+    pub fn display_name(&self) -> &str {
+        &self.display_name
     }
 
     /// Returns the only allowed EAS URL for this profile.
     #[must_use]
-    pub fn endpoint(self) -> String {
+    pub fn endpoint(&self) -> String {
         format!("https://{}/Microsoft-Server-ActiveSync", self.host)
     }
 
     /// Returns the exact Device ID length required by this endpoint.
     #[must_use]
-    pub const fn device_id_length(self) -> usize {
+    pub const fn device_id_length(&self) -> usize {
         self.device_id_length as usize
     }
 
-    /// Reports whether this profile uses an exclusive embedded trust anchor.
+    /// Reports whether this profile uses an exclusive local trust anchor.
     #[must_use]
-    pub const fn has_extra_trust_anchor(self) -> bool {
+    pub const fn has_extra_trust_anchor(&self) -> bool {
         self.extra_ca_pem.is_some()
     }
 
-    /// Validates account identity against the compiled profile.
-    pub fn validate_identity(self, email: &str, username: &str) -> Result<()> {
+    /// Validates account identity against the local profile.
+    pub fn validate_identity(&self, email: &str, username: &str) -> Result<()> {
         let domain = email.rsplit_once('@').map(|(_, domain)| domain);
         if domain.is_none_or(|domain| {
             !self.email_domains.iter().any(|allowed| domain.eq_ignore_ascii_case(allowed))
@@ -116,7 +123,7 @@ impl Profile {
         if username.trim().is_empty() || username.chars().any(char::is_control) {
             return Err(EasError::InvalidConfiguration("username must not be empty".into()));
         }
-        if let Some(required) = self.username_realm {
+        if let Some(required) = &self.username_realm {
             let actual = username.split_once('\\').map(|(realm, _)| realm);
             if actual.is_none_or(|realm| !realm.eq_ignore_ascii_case(required)) {
                 return Err(EasError::InvalidConfiguration(
@@ -128,7 +135,7 @@ impl Profile {
     }
 
     /// Validates the stable EAS Device ID for this profile.
-    pub fn validate_device_id(self, device_id: &str) -> Result<()> {
+    pub fn validate_device_id(&self, device_id: &str) -> Result<()> {
         if device_id.len() != self.device_id_length()
             || !device_id.bytes().all(|byte| byte.is_ascii_alphanumeric())
         {
@@ -140,12 +147,12 @@ impl Profile {
     }
 
     #[cfg(test)]
-    pub(crate) const fn localhost() -> Self {
+    pub(crate) fn localhost() -> Self {
         Self {
-            key: "localhost",
-            display_name: "Local test",
-            host: "localhost",
-            email_domains: &["example.invalid"],
+            key: ProfileKey("localhost".into()),
+            display_name: "Local test".into(),
+            host: "localhost".into(),
+            email_domains: vec!["example.invalid".into()],
             username_realm: None,
             device_id_length: 32,
             extra_ca_pem: None,
@@ -153,76 +160,87 @@ impl Profile {
     }
 }
 
-/// Registry of all immutable profiles embedded into this build.
-#[derive(Debug, Clone, Copy)]
+/// Registry of validated profiles loaded for one process.
+#[derive(Debug, Clone)]
 pub struct ProfileRegistry {
-    bundle_version: &'static str,
-    bundle_hash: &'static str,
-    development_only: bool,
-    profiles: &'static [Profile],
+    bundle_version: String,
+    bundle_hash: String,
+    profiles: Vec<Profile>,
 }
 
 impl ProfileRegistry {
-    /// Returns the compile-time profile registry.
-    #[must_use]
-    pub const fn compiled() -> &'static Self {
-        &COMPILED_REGISTRY
+    /// Parses and validates a registry from portable runtime TOML.
+    pub fn from_toml(input: &str) -> Result<Self> {
+        let bundle = eas_mail_profile::parse(input)
+            .map_err(|_| EasError::InvalidConfiguration("profile TOML is invalid".into()))?;
+        Self::from_verified(&bundle)
+    }
+
+    /// Constructs a registry from a validated runtime bundle.
+    pub fn from_verified(bundle: &VerifiedBundle) -> Result<Self> {
+        let mut profiles = Vec::with_capacity(bundle.manifest.profiles.len());
+        for spec in &bundle.manifest.profiles {
+            let key = ProfileKey::new(spec.id.clone())?;
+            let extra_ca_pem = match &spec.trust {
+                TrustSpec::System => None,
+                TrustSpec::ExclusivePem { pem, .. } => Some(pem.as_bytes().to_vec()),
+            };
+            profiles.push(Profile {
+                key,
+                display_name: spec.display_name.clone(),
+                host: spec.host.clone(),
+                email_domains: spec.email_domains.clone(),
+                username_realm: spec.username_realm.clone(),
+                device_id_length: spec.device_id_length,
+                extra_ca_pem,
+            });
+        }
+        Ok(Self {
+            bundle_version: bundle.manifest.bundle_version.clone(),
+            bundle_hash: bundle.hash.clone(),
+            profiles,
+        })
     }
 
     /// Resolves a profile key without permitting an arbitrary endpoint.
     #[must_use]
-    pub fn get(self, key: &ProfileKey) -> Option<Profile> {
-        self.profiles.iter().copied().find(|profile| profile.key == key.as_str())
+    pub fn get(&self, key: &ProfileKey) -> Option<&Profile> {
+        self.profiles.iter().find(|profile| profile.key == *key)
     }
 
     /// Resolves a profile or returns a redacted configuration error.
-    pub fn require(self, key: &ProfileKey) -> Result<Profile> {
+    pub fn require(&self, key: &ProfileKey) -> Result<&Profile> {
         self.get(key)
-            .ok_or_else(|| EasError::InvalidConfiguration("profile is not compiled in".into()))
+            .ok_or_else(|| EasError::InvalidConfiguration("profile is not configured".into()))
     }
 
     /// Returns all available profiles.
     #[must_use]
-    pub const fn profiles(self) -> &'static [Profile] {
-        self.profiles
+    pub fn profiles(&self) -> &[Profile] {
+        &self.profiles
     }
 
-    /// Returns the first compiled profile key for deterministic harness defaults.
+    /// Returns the first profile key for deterministic harness defaults.
     #[must_use]
-    pub fn default_key(self) -> ProfileKey {
-        match self.profiles {
-            [profile, ..] => ProfileKey(profile.key.to_owned()),
-            [] => ProfileKey("unavailable".into()),
-        }
+    pub fn default_key(&self) -> Option<ProfileKey> {
+        self.profiles.first().map(|profile| profile.key.clone())
     }
 
-    /// Returns the operator-defined profile bundle version.
+    /// Returns the local profile bundle version.
     #[must_use]
-    pub const fn bundle_version(self) -> &'static str {
-        self.bundle_version
+    pub fn bundle_version(&self) -> &str {
+        &self.bundle_version
     }
 
-    /// Returns the SHA-256 hash of the profile manifest and trust material.
+    /// Returns the SHA-256 hash of the profile file.
     #[must_use]
-    pub const fn bundle_hash(self) -> &'static str {
-        self.bundle_hash
+    pub fn bundle_hash(&self) -> &str {
+        &self.bundle_hash
     }
 
-    /// Reports whether this build uses a development-only bundle.
+    /// Reports whether no profiles are configured.
     #[must_use]
-    pub const fn development_only(self) -> bool {
-        self.development_only
+    pub fn is_empty(&self) -> bool {
+        self.profiles.is_empty()
     }
 }
-
-fn valid_profile_key(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 32
-        && value.bytes().enumerate().all(|(index, byte)| {
-            byte.is_ascii_lowercase()
-                || byte.is_ascii_digit()
-                || (index > 0 && matches!(byte, b'-' | b'_'))
-        })
-}
-
-include!(concat!(env!("OUT_DIR"), "/profiles.rs"));

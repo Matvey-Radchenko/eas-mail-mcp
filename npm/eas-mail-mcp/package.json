@@ -1,0 +1,36 @@
+{
+  "name": "eas-mail-mcp",
+  "version": "0.2.0-beta.2",
+  "description": "Local Exchange ActiveSync MCP server for mail and calendar",
+  "license": "MIT OR Apache-2.0",
+  "author": "Matvey Radchenko",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Matvey-Radchenko/eas-mail-mcp.git"
+  },
+  "homepage": "https://github.com/Matvey-Radchenko/eas-mail-mcp#readme",
+  "bugs": "https://github.com/Matvey-Radchenko/eas-mail-mcp/issues",
+  "type": "module",
+  "bin": {
+    "eas-mail-mcp": "bin/eas-mail-mcp.js"
+  },
+  "files": [
+    "bin/eas-mail-mcp.js",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
+  "optionalDependencies": {
+    "eas-mail-mcp-darwin-arm64": "0.2.0-beta.2",
+    "eas-mail-mcp-darwin-x64": "0.2.0-beta.2"
+  }
+}

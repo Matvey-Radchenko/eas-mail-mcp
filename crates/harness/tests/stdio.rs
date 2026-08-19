@@ -37,8 +37,8 @@ async fn black_box_server_exposes_and_executes_every_tool() -> Result<()> {
         }),
     )?;
     let info = InitializeRequestParams::new(
-        ClientCapabilities::default(),
-        Implementation::new("codex-mcp-client", "0.133.0"),
+        ClientCapabilities::builder().enable_elicitation().build(),
+        Implementation::new("codex-mcp-client", "0.148.0-alpha.9"),
     );
     let client = tokio::time::timeout(Duration::from_secs(10), info.serve(transport))
         .await
@@ -57,6 +57,15 @@ async fn black_box_server_exposes_and_executes_every_tool() -> Result<()> {
     anyhow::ensure!(
         !contains_unsigned_format(&schemas),
         "tool schemas expose non-portable unsigned integer formats"
+    );
+    let send_schema = tools
+        .iter()
+        .find(|tool| tool.name == "mail_send")
+        .map(|tool| Value::Object(tool.input_schema.as_ref().clone()))
+        .context("mail_send schema is missing")?;
+    anyhow::ensure!(
+        send_schema.pointer("/properties/body/maxLength").and_then(Value::as_u64) == Some(50_000),
+        "mail_send body schema is missing the 50,000 character limit"
     );
     let invalid = call_result(&peer, "mail_get", Some(json!({}))).await?;
     anyhow::ensure!(invalid.is_error == Some(true), "invalid input did not fail schema validation");

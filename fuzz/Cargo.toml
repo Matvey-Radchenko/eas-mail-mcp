@@ -8,7 +8,7 @@ edition = "2024"
 cargo-fuzz = true
 
 [dependencies]
-eas-mail-protocol = { version = "0.1.0", path = "../crates/eas" }
+eas-mail-protocol = { version = "=0.2.0-beta.2", path = "../crates/eas" }
 libfuzzer-sys = "0.4"
 
 [[bin]]

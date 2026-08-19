@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-Security fixes are applied to the latest source release. This project does not
-publish prebuilt public binaries in its initial release.
+Security fixes are applied to the latest release. Public beta binaries are
+distributed through platform-restricted npm packages for macOS only.
 
 ## Reporting a vulnerability
 
@@ -19,22 +19,27 @@ one trusted local boundary. Credentials are stored in that user's Keychain and
 runtime files use user-only permissions. The application does not attempt to
 protect data from another process with the same UID.
 
-MCP client name and version are self-reported protocol fields. They are a
-compatibility guard used to keep write tools disabled for unknown clients; they
-are not authentication. Likewise, a client's `ask` policy is a user-experience
-confirmation and not an authorization boundary. Account-level writes remain
-disabled by default, and every mutation requires an idempotency UUID.
+MCP client name and version are self-reported diagnostic fields, not
+authentication or authorization. The only server-side mutation opt-in is the
+account's `write_enabled` flag, and every mutation requires an idempotency UUID.
+An explicit write-tool call executes immediately after validation. The server
+does not provide a human-confirmation boundary; draft review is an agent-client
+workflow and must happen before the tool call. Any client approval policy is
+user-experience configuration rather than authentication or authorization.
 
 ## Network boundary
 
-Profiles are validated and embedded at build time. Runtime account config stores
-only a profile key, so it cannot select an arbitrary host, certificate, realm,
-or protocol. The transport fixes HTTPS, the
+Profiles are local, user-owned configuration and are validated at every process
+start. Runtime account config stores only a profile key resolved from that
+registry. The transport fixes HTTPS, the
 `/Microsoft-Server-ActiveSync` path, Basic authentication over TLS, EAS 14.1,
-disabled redirects, and response-origin validation.
+disabled redirects, and response-origin validation. Profiles cannot contain
+ports, IP addresses, wildcard hosts, alternate paths, or TLS bypasses.
 
-Trust mode is either the macOS system store or one exclusive embedded PEM with
-a build-verified SHA-256 fingerprint. TLS verification cannot be disabled by
+Trust mode is either the macOS system store or one exclusive inline PEM with a
+validated SHA-256 fingerprint. The fingerprint detects accidental mismatch
+inside the profile; it is not authentication against another same-user process
+that can replace both values. TLS verification cannot be disabled by
 configuration or environment variables.
 
 ## Secrets and content

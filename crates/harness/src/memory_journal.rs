@@ -12,6 +12,13 @@ pub struct MemoryJournal {
 }
 
 impl OperationJournal for MemoryJournal {
+    fn lookup(&self, operation_id: &str) -> Result<Option<JournalRecord>> {
+        self.records
+            .lock()
+            .map(|records| records.get(operation_id).cloned())
+            .map_err(|_| storage_error())
+    }
+
     fn begin(&self, record: &JournalRecord) -> Result<JournalBegin> {
         let mut records = self.records.lock().map_err(|_| storage_error())?;
         if let Some(existing) = records.get(&record.operation_id) {

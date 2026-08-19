@@ -6,9 +6,20 @@ use futures::future::join_all;
 use crate::backend::{AccountBackend as _, EasMailbox};
 use crate::{AppError, ErrorCode, KeychainStore, Paths, Result, Runtime, SecretStore, load_config};
 
-pub(super) async fn run(paths: &Paths) -> Result<serde_json::Value> {
-    let registry = ProfileRegistry::compiled();
+pub(super) async fn run(
+    paths: &Paths,
+    registry: Option<&ProfileRegistry>,
+) -> Result<serde_json::Value> {
     let config = load_config(&paths.config)?;
+    let Some(registry) = registry else {
+        return Ok(serde_json::json!({
+            "config": "ok",
+            "profile_store": "missing",
+            "accounts_configured": config.accounts.len(),
+            "remediation": "Run eas-mail-mcp setup or profile import",
+        }));
+    };
+    config.validate_profiles(registry)?;
     let store: Arc<dyn SecretStore> = Arc::new(KeychainStore::new(paths.journal.clone()));
     let bundle = store.load()?;
     let checks = config.accounts.into_iter().map(|(account_id, account)| {
@@ -23,7 +34,13 @@ pub(super) async fn run(paths: &Paths) -> Result<serde_json::Value> {
                     "code": "AUTH_REQUIRED",
                 });
             };
-            match EasMailbox::production_with_secret(account_id.clone(), account, store, secret) {
+            match EasMailbox::production_with_secret(
+                account_id.clone(),
+                account,
+                store,
+                secret,
+                registry,
+            ) {
                 Ok(mailbox) => match mailbox.folders().await {
                     Ok(folders) => serde_json::json!({
                         "account_id": account_id,
@@ -42,10 +59,10 @@ pub(super) async fn run(paths: &Paths) -> Result<serde_json::Value> {
         "keychain": "ok",
         "tls": "mandatory",
         "redirects": "disabled",
-        "profile_bundle": {
+        "profile_store": {
             "version": registry.bundle_version(),
             "sha256": registry.bundle_hash(),
-            "development_only": registry.development_only(),
+            "profiles": registry.profiles().len(),
         },
         "accounts": accounts,
     }))

@@ -2,7 +2,8 @@ use std::io::{self, BufRead as _, Write as _};
 use std::sync::Arc;
 
 use clap::Parser;
-use eas_mail_protocol::{EasClient, HttpTransport, ProfileKey, ProfileRegistry};
+use eas_mail_mcp::{Paths, load_profile_registry};
+use eas_mail_protocol::{EasClient, HttpTransport, ProfileKey};
 use serde::Serialize;
 use zeroize::Zeroizing;
 
@@ -28,7 +29,10 @@ async fn main() -> anyhow::Result<()> {
     let arguments = Arguments::parse();
     anyhow::ensure!(arguments.password_stdin, "the live probe requires --password-stdin");
     let password = read_password()?;
-    let profile = ProfileRegistry::compiled().require(&arguments.profile)?;
+    let paths = Paths::standard()?;
+    let profiles = load_profile_registry(&paths.profiles)?
+        .ok_or_else(|| anyhow::anyhow!("no endpoint profiles are configured"))?;
+    let profile = profiles.require(&arguments.profile)?;
     let device_id = "A1".repeat(profile.device_id_length() / 2);
     let transport =
         HttpTransport::new(profile, arguments.username, password.to_string(), device_id)?;

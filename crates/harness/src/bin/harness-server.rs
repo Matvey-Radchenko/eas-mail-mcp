@@ -3,9 +3,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eas_mail_mcp::backend::AccountBackend;
-use eas_mail_mcp::mcp::serve_stdio;
+use eas_mail_mcp::mcp::MailMcpServer;
 use eas_mail_mcp::{Clock, IdGenerator, OperationJournal, Runtime};
 use eas_mail_mcp_harness::{FakeBackend, FixedClock, MemoryJournal, SequenceIds};
+use rmcp::ServiceExt as _;
 
 const DELAY_ENV: &str = "EAS_MAIL_HARNESS_DELAY_MS";
 const CLOCK_FILE_ENV: &str = "EAS_MAIL_HARNESS_CLOCK_FILE";
@@ -52,5 +53,6 @@ async fn main() -> anyhow::Result<()> {
         vec![7; 32],
         temporary.path().join("attachments"),
     )?);
-    serve_stdio(runtime).await
+    MailMcpServer::new(runtime).serve(rmcp::transport::stdio()).await?.waiting().await?;
+    Ok(())
 }

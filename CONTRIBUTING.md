@@ -14,8 +14,8 @@ Rust 1.95.0 is pinned in `rust-toolchain.toml`. Install local tools with:
 
 ## Code boundaries
 
-- `profile` validates build-time profile manifests and trust material.
-- `eas` owns WBXML, EAS commands, generated profiles, and HTTPS transport.
+- `profile` validates portable runtime profile manifests and trust material.
+- `eas` owns WBXML, EAS commands, profile-backed endpoints, and HTTPS transport.
 - `app` owns account configuration, Keychain, idempotency, CLI, and MCP tools.
 - `harness` owns fake I/O and black-box process drivers.
 - `xtask` owns engineering gates and release assembly.
@@ -41,17 +41,17 @@ Introduce traits only at I/O boundaries.
 cargo xtask test
 cargo xtask goldens verify
 cargo xtask profile verify
+cargo xtask npm verify
 cargo xtask check
 ```
 
 Nextest runs without retries. Golden fixtures are updated only through
 `cargo xtask goldens accept` after reviewing canonical XML and WBXML changes.
 
-Before an operator release, also run the profile-specific and extended gates:
+Before an npm beta, also run the packaging and extended gates:
 
 ```bash
-cargo xtask profile verify --profile-bundle .private/profile.toml --release
-cargo xtask build-bundles --profile-bundle .private/profile.toml
+cargo xtask npm pack
 cargo xtask live
 cargo xtask perf --python benchmarks/.venv/bin/python
 cargo xtask soak --hours 8
@@ -64,6 +64,6 @@ cross-origin redirects, client spoofing, or mailbox fields to logs or SQLite.
 Treat mail and calendar content as untrusted external input. A mutation with an
 ambiguous result must return `OUTCOME_UNKNOWN` and must not be retried blindly.
 
-Keep deployment profiles under `.private/`. Run `cargo xtask public-audit
---denylist .private/public-audit-denylist.txt` before publication when an
-operator-specific denylist exists.
+Never commit real deployment profiles. Run `cargo xtask public-audit --denylist
+.private/public-audit-denylist.txt` before publication when an operator-specific
+denylist exists.

@@ -3,32 +3,29 @@
 The authoritative trust-boundary summary is in [`SECURITY.md`](../SECURITY.md).
 This document records engineering controls used by release builds.
 
-## Build inputs
+## Local profile controls
 
-- `profile.example.toml` is public, non-routable, and development-only.
-- Deployment manifests and certificates stay under ignored `.private/`.
-- `cargo xtask profile verify` validates schema, host and domain syntax,
+- Public binaries and npm tarballs contain no deployment profiles.
+- `profile.example.toml` is public and non-routable.
+- `profile validate` and `cargo xtask profile verify` validate schema, host and domain syntax,
   duplicate IDs, realm syntax, Device ID length, trust mode, traversal, symlink,
   PEM shape, and certificate fingerprint.
-- `cargo xtask build-bundles` rejects development-only manifests.
-- The profile version and content hash are embedded in the binary and written
-  to `BUILD-METADATA.json` with source and artifact hashes.
-- The dual-architecture handoff contains no profile source or credentials. Its
-  installer verifies every extracted payload against an internal `SHA256SUMS`.
-  An external archive checksum or publisher signature remains necessary when
-  authenticity must be established before extraction.
+- Profile writes are atomic and use private local permissions.
+- Import replacement is explicit and rejects account-invalidating changes.
+- Inline PEM is public trust material, must contain one certificate and no
+  private key, and is checked against its declared SHA-256 fingerprint.
 
 ## Publication controls
 
 `cargo xtask public-audit` rejects tracked private-directory files, local user
 paths, proprietary-license residue, and any operator denylist terms in the
 tracked tree or Git history. Gitleaks scans the public tree and full history.
-When present, `.private/` receives a separate credential/private-key scan while
-allowed endpoint metadata is not treated as a secret.
+When present, `.private/` receives a separate credential/private-key scan.
 
-Release builds remap workspace and Cargo source paths. A `strings` gate rejects
-local build paths and confirms that profile version/hash metadata is present.
-Source releases contain no binaries or ignored files.
+Release builds remap workspace and Cargo source paths. `cargo xtask npm pack`
+checks binary size, architecture, code signature, local path leakage, package
+contents, version parity, and the absence of lifecycle scripts. Source releases
+contain no binaries or ignored files.
 
 ## Runtime controls
 
@@ -38,5 +35,9 @@ Source releases contain no binaries or ignored files.
 - Remote wipe purges account credentials, process references, attachments, and
   journal rows.
 - Ambiguous mutations are not retried and return `OUTCOME_UNKNOWN`.
-- Write tools require account opt-in, a supported compatibility profile, client
-  confirmation configuration, and an idempotency UUID.
+- Write tools require account opt-in and an idempotency UUID. Client identity and
+  version are diagnostic only.
+- An explicit write-tool call executes immediately after validation. The server
+  does not add an elicitation or preview step.
+- Agents must not call a write tool when the user requested only a draft or
+  review. Client-level approval remains optional user-experience policy.

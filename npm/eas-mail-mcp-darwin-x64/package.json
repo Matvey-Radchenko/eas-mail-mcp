@@ -1,0 +1,22 @@
+{
+  "name": "eas-mail-mcp-darwin-x64",
+  "version": "0.2.0-beta.2",
+  "description": "Native macOS x64 binary for eas-mail-mcp",
+  "license": "MIT OR Apache-2.0",
+  "author": "Matvey Radchenko",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Matvey-Radchenko/eas-mail-mcp.git"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/eas-mail-mcp",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ]
+}

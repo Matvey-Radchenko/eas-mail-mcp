@@ -8,12 +8,7 @@ use crate::command::output;
 
 const AGENT_GUIDE: &str = "docs/agent-installation.ru.md";
 
-pub(super) fn create(
-    root: &Path,
-    dist: &Path,
-    bundles: &[(&str, PathBuf)],
-    profile: &eas_mail_profile::VerifiedBundle,
-) -> Result<PathBuf> {
+pub(super) fn create(root: &Path, dist: &Path, bundles: &[(&str, PathBuf)]) -> Result<PathBuf> {
     anyhow::ensure!(bundles.len() == 2, "handoff requires exactly two architecture bundles");
     let name = format!("{BINARY}-{}-macos-handoff", env!("CARGO_PKG_VERSION"));
     let handoff = dist.join(name);
@@ -37,7 +32,7 @@ pub(super) fn create(
     fs::copy(root.join("docs/installation.ru.md"), handoff.join("installation.ru.md"))?;
     fs::copy(root.join(AGENT_GUIDE), handoff.join("INSTALL-FOR-AI-AGENT.md"))?;
     fs::write(handoff.join("TARGET_ARCHS"), "arm64\nx86_64\n")?;
-    write_metadata(root, &handoff, &binary_paths, profile)?;
+    write_metadata(root, &handoff, &binary_paths)?;
     make_executable(&handoff.join("install.sh"))?;
     make_executable(&handoff.join("uninstall.sh"))?;
 
@@ -54,12 +49,7 @@ pub(super) fn create(
     Ok(handoff)
 }
 
-fn write_metadata(
-    root: &Path,
-    handoff: &Path,
-    binary_paths: &[PathBuf],
-    profile: &eas_mail_profile::VerifiedBundle,
-) -> Result<()> {
+fn write_metadata(root: &Path, handoff: &Path, binary_paths: &[PathBuf]) -> Result<()> {
     let source_sha = output(root, "git", ["rev-parse", "HEAD"])?;
     let mut artifacts = serde_json::Map::new();
     for relative in binary_paths {
@@ -80,8 +70,6 @@ fn write_metadata(
         "format": "macos-dual-architecture-handoff",
         "package_version": env!("CARGO_PKG_VERSION"),
         "source_sha": source_sha.trim(),
-        "profile_bundle_version": profile.manifest.bundle_version,
-        "profile_bundle_sha256": profile.hash,
         "artifacts": artifacts,
     });
     fs::write(

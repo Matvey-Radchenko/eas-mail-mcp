@@ -1,14 +1,14 @@
 mod calendar;
 mod convert;
+mod outgoing;
 mod reads;
 mod writes;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use eas_mail_protocol::ProfileKey;
+use eas_mail_protocol::{ProfileKey, ProfileRegistry};
 use zeroize::Zeroize as _;
 
 use crate::attachment_cache::AttachmentCache;
@@ -29,13 +29,17 @@ pub struct Runtime {
     pub(super) attachments: AttachmentCache,
     pub(super) clock: Arc<dyn Clock>,
     pub(super) sync_reports: Mutex<BTreeMap<String, SyncReport>>,
-    client_writes_allowed: AtomicBool,
 }
 
 impl Runtime {
     /// Constructs a production runtime from standard per-user storage.
-    pub fn production(config: AppConfig, paths: &Paths) -> Result<Self> {
+    pub fn production(
+        config: AppConfig,
+        paths: &Paths,
+        profiles: &ProfileRegistry,
+    ) -> Result<Self> {
         paths.ensure()?;
+        config.validate_profiles(profiles)?;
         let journal: Arc<dyn OperationJournal> = Arc::new(SqliteJournal::open(&paths.journal)?);
         let _ = journal.prune()?;
         let secrets: Arc<dyn SecretStore> = Arc::new(KeychainStore::new(paths.journal.clone()));
@@ -52,6 +56,7 @@ impl Runtime {
                     account,
                     Arc::clone(&secrets),
                     secret,
+                    profiles,
                 )?));
             }
         }
@@ -106,22 +111,7 @@ impl Runtime {
             attachments,
             clock,
             sync_reports: Mutex::new(BTreeMap::new()),
-            client_writes_allowed: AtomicBool::new(false),
         })
-    }
-
-    /// Enables writes only for explicitly supported interactive MCP client releases.
-    pub fn authorize_client(&self, name: &str, version: &str) -> bool {
-        let name = name.trim().to_ascii_lowercase();
-        let supported =
-            client_version(version).is_some_and(|(major, minor, patch)| match name.as_str() {
-                "codex-mcp-client" => major == 0 && minor == 133,
-                "claude-ai" => (major, minor, patch) == (0, 1, 0),
-                "opencode" => major == 1,
-                _ => false,
-            });
-        self.client_writes_allowed.store(supported, Ordering::Release);
-        supported
     }
 
     pub(super) fn selected(
@@ -167,13 +157,6 @@ impl Runtime {
             return Err(AppError::new(
                 ErrorCode::ValidationFailed,
                 "write tools are disabled for this account",
-            )
-            .account(account_id));
-        }
-        if !self.client_writes_allowed.load(Ordering::Acquire) {
-            return Err(AppError::new(
-                ErrorCode::ValidationFailed,
-                "write tools require a supported interactive MCP client",
             )
             .account(account_id));
         }
@@ -227,14 +210,6 @@ impl Runtime {
         references?;
         journal?;
         attachments
-    }
-}
-
-fn client_version(value: &str) -> Option<(u64, u64, u64)> {
-    let mut parts = value.split('.').map(|part| part.parse::<u64>().ok());
-    match (parts.next()?, parts.next()?, parts.next()?, parts.next()) {
-        (Some(major), Some(minor), Some(patch), None) => Some((major, minor, patch)),
-        _ => None,
     }
 }
 

@@ -1,16 +1,11 @@
 use std::collections::BTreeSet;
-use std::fs;
-use std::path::{Component, Path};
+use std::net::IpAddr;
+use std::path::Path;
 
 use base64::Engine as _;
 use sha2::{Digest as _, Sha256};
 
 use crate::{ProfileBundle, ProfileError, TrustSpec};
-
-pub(crate) struct LoadedTrust {
-    pub(crate) pem: Option<Vec<u8>>,
-    pub(crate) source: Option<std::path::PathBuf>,
-}
 
 pub(crate) fn validate_manifest(bundle: &ProfileBundle) -> Result<(), ProfileError> {
     if bundle.schema_version != 1 {
@@ -54,47 +49,30 @@ pub(crate) fn validate_manifest(bundle: &ProfileBundle) -> Result<(), ProfileErr
         if !matches!(profile.device_id_length, 16 | 32) {
             return invalid("device_id_length must be 16 or 32");
         }
+        validate_trust(&profile.trust)?;
     }
     Ok(())
 }
 
-pub(crate) fn load_trust(parent: &Path, trust: &TrustSpec) -> Result<LoadedTrust, ProfileError> {
+fn validate_trust(trust: &TrustSpec) -> Result<(), ProfileError> {
     match trust {
-        TrustSpec::System => Ok(LoadedTrust { pem: None, source: None }),
+        TrustSpec::System => Ok(()),
         TrustSpec::ExclusivePem { pem, sha256 } => {
-            if pem.as_os_str().is_empty()
-                || pem.is_absolute()
-                || pem.extension().is_none_or(|extension| extension != "pem")
-                || pem.components().any(|component| !matches!(component, Component::Normal(_)))
-            {
-                return trust_error("PEM path must be a relative traversal-free .pem path");
+            if pem.len() > 64 * 1024 {
+                return trust_error("PEM certificate is too large");
             }
-            let parent = parent.canonicalize().map_err(|_| ProfileError::Read)?;
-            let candidate = parent.join(pem);
-            if fs::symlink_metadata(&candidate)
-                .is_ok_and(|metadata| metadata.file_type().is_symlink())
-            {
-                return trust_error("PEM path must not be a symlink");
-            }
-            let resolved = candidate
-                .canonicalize()
-                .map_err(|_| ProfileError::Trust("PEM file is missing".into()))?;
-            if !resolved.starts_with(&parent) {
-                return trust_error("PEM path escapes the profile directory");
-            }
-            let bytes = fs::read(&resolved)
-                .map_err(|_| ProfileError::Trust("PEM file cannot be read".into()))?;
-            let actual = certificate_fingerprint(&bytes)?;
+            let actual = certificate_fingerprint(pem.as_bytes())?;
             let expected = normalize_fingerprint(sha256)?;
             if actual != expected {
                 return trust_error("PEM fingerprint does not match sha256");
             }
-            Ok(LoadedTrust { pem: Some(bytes), source: Some(resolved) })
+            Ok(())
         }
     }
 }
 
-fn certificate_fingerprint(pem: &[u8]) -> Result<String, ProfileError> {
+/// Returns the canonical uppercase SHA-256 fingerprint of one PEM certificate.
+pub fn certificate_fingerprint(pem: &[u8]) -> Result<String, ProfileError> {
     let text =
         std::str::from_utf8(pem).map_err(|_| ProfileError::Trust("PEM must be UTF-8".into()))?;
     if text.contains("PRIVATE KEY") {
@@ -158,6 +136,7 @@ fn valid_dns_name(value: &str) -> bool {
     value.len() <= 253
         && value.contains('.')
         && !value.ends_with('.')
+        && value.parse::<IpAddr>().is_err()
         && value.bytes().all(|byte| {
             byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-')
         })
@@ -167,6 +146,26 @@ fn valid_dns_name(value: &str) -> bool {
                 && !label.starts_with('-')
                 && !label.ends_with('-')
         })
+}
+
+pub(crate) fn reject_link(path: &Path) -> Result<(), ProfileError> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| ProfileError::Read)?;
+    if metadata.file_type().is_symlink() || is_reparse_point(&metadata) {
+        return Err(ProfileError::Read);
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt as _;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+const fn is_reparse_point(_: &std::fs::Metadata) -> bool {
+    false
 }
 
 fn invalid<T>(message: &str) -> Result<T, ProfileError> {

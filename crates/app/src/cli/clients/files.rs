@@ -1,9 +1,9 @@
-use std::fs::{self, File, OpenOptions};
-use std::io::Write as _;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
+use crate::platform;
 use crate::{AppError, ErrorCode, Paths, Result};
 
 pub(super) trait ClientConfigFilesystem {
@@ -35,13 +35,17 @@ impl ClientConfigFilesystem for SystemClientConfigFilesystem {
         fs::create_dir_all(path).map_err(|_| {
             AppError::new(ErrorCode::StorageError, "cannot create client config directory")
         })?;
-        private_directory(path)
+        platform::ensure_private_directory(path).map_err(|_| {
+            AppError::new(ErrorCode::StorageError, "cannot protect client config directory")
+        })
     }
 
     fn copy(&self, source: &Path, destination: &Path) -> Result<()> {
         fs::copy(source, destination)
             .map_err(|_| AppError::new(ErrorCode::StorageError, "cannot copy client config"))?;
-        private_permissions(destination)
+        platform::protect_file(destination).map_err(|_| {
+            AppError::new(ErrorCode::StorageError, "cannot protect client config backup")
+        })
     }
 
     fn remove_file(&self, path: &Path) -> Result<()> {
@@ -153,13 +157,8 @@ fn write_system_private(path: &Path, data: &[u8], label: &str) -> Result<()> {
     fs::create_dir_all(parent).map_err(|_| {
         AppError::new(ErrorCode::StorageError, "cannot create client config directory")
     })?;
-    let temporary = parent.join(format!(".mail-mcp-{}.tmp", std::process::id()));
-    let mut file = private_file(&temporary)?;
-    file.write_all(data)
-        .and_then(|()| file.sync_all())
-        .map_err(|_| AppError::new(ErrorCode::StorageError, format!("cannot write {label}")))?;
-    fs::rename(temporary, path)
-        .map_err(|_| AppError::new(ErrorCode::StorageError, format!("cannot replace {label}")))
+    platform::atomic_write_in_existing_directory(path, data)
+        .map_err(|_| AppError::new(ErrorCode::StorageError, format!("cannot write {label}")))
 }
 
 pub(super) fn backup(paths: &Paths, source: &Path, label: &str) -> Result<Option<PathBuf>> {
@@ -207,6 +206,7 @@ pub(super) fn object_entry<'a>(
     entry.as_object_mut().ok_or_else(config_shape)
 }
 
+#[cfg(test)]
 pub(super) fn array_entry<'a>(
     document: &'a mut Map<String, Value>,
     key: &str,
@@ -231,31 +231,4 @@ fn config_shape() -> AppError {
 fn home() -> Result<PathBuf> {
     dirs::home_dir()
         .ok_or_else(|| AppError::new(ErrorCode::ConfigInvalid, "cannot determine home directory"))
-}
-
-#[cfg(unix)]
-fn private_file(path: &Path) -> Result<File> {
-    use std::os::unix::fs::OpenOptionsExt as _;
-    OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .open(path)
-        .map_err(|_| AppError::new(ErrorCode::StorageError, "cannot create client config"))
-}
-
-#[cfg(unix)]
-fn private_directory(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(|_| {
-        AppError::new(ErrorCode::StorageError, "cannot protect client config directory")
-    })
-}
-
-#[cfg(unix)]
-fn private_permissions(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-        .map_err(|_| AppError::new(ErrorCode::StorageError, "cannot protect client config backup"))
 }

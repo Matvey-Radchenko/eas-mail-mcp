@@ -1,0 +1,66 @@
+name: Publish npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      npm_tag:
+        description: npm distribution tag
+        required: true
+        default: next
+        type: choice
+        options:
+          - next
+          - latest
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: macos-15
+    environment: npm
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal \
+            --target aarch64-apple-darwin,x86_64-apple-darwin
+          rustup default 1.95.0
+      - name: Install Node.js and npm with trusted publishing support
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install current npm 11
+        run: npm install --global npm@11
+      - name: Build and smoke-test tarballs
+        run: cargo xtask npm pack
+      - name: Validate release tag
+        env:
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: |
+          VERSION="$(node -p "require('./npm/eas-mail-mcp/package.json').version")"
+          if [[ "$VERSION" == *-* && "$NPM_TAG" != next ]]; then
+            echo 'Prerelease versions must use the next tag' >&2
+            exit 1
+          fi
+          if [[ "$VERSION" != *-* && "$NPM_TAG" != latest ]]; then
+            echo 'Stable versions must use the latest tag' >&2
+            exit 1
+          fi
+      - name: Publish native packages first
+        env:
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: |
+          npm publish dist/npm/eas-mail-mcp-darwin-arm64-*.tgz --access public --tag "$NPM_TAG" --provenance
+          npm publish dist/npm/eas-mail-mcp-darwin-x64-*.tgz --access public --tag "$NPM_TAG" --provenance
+      - name: Publish root package last
+        env:
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: npm publish dist/npm/eas-mail-mcp-[0-9]*.tgz --access public --tag "$NPM_TAG" --provenance

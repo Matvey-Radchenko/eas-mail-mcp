@@ -9,8 +9,12 @@ use anyhow::{Context as _, Result};
 use crate::command::output;
 
 pub(crate) fn run(root: &Path, denylist: Option<&Path>) -> Result<()> {
-    let tracked = output(root, "git", ["ls-files", "-z"])?;
-    let paths = tracked.split('\0').filter(|value| !value.is_empty()).collect::<Vec<_>>();
+    let candidates =
+        output(root, "git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])?;
+    let paths = candidates
+        .split('\0')
+        .filter(|value| !value.is_empty() && root.join(value).is_file())
+        .collect::<Vec<_>>();
     let private_prefix = [".", "private", "/"].concat();
     anyhow::ensure!(
         paths.iter().all(|path| !path.starts_with(&private_prefix)),

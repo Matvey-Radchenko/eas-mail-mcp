@@ -9,7 +9,7 @@ use eas_mail_mcp::{
 use eas_mail_mcp_harness::{ExpectedCall, ScriptedTransport};
 use eas_mail_protocol::protocol::{PolicyDecision, evaluate_policy};
 use eas_mail_protocol::wbxml::{Element, Node, encode};
-use eas_mail_protocol::{Command, ProfileRegistry, RequestSafety, Transport};
+use eas_mail_protocol::{Command, ProfileKey, RequestSafety, Transport};
 
 pub fn mailbox(
     calls: Vec<ExpectedCall>,
@@ -258,7 +258,7 @@ pub fn outgoing() -> OutgoingMail {
 
 fn account() -> AccountConfig {
     AccountConfig {
-        profile: ProfileRegistry::compiled().default_key(),
+        profile: ProfileKey::default(),
         email: "user@example.invalid".into(),
         username: "example_user".into(),
         enabled: true,

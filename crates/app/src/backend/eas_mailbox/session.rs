@@ -53,13 +53,14 @@ impl EasMailbox {
         account_id: String,
         config: AccountConfig,
         secrets: Arc<dyn SecretStore>,
+        profiles: &ProfileRegistry,
     ) -> Result<Self> {
         let bundle = secrets.load()?;
         let secret = bundle.accounts.get(&account_id).cloned().ok_or_else(|| {
             AppError::new(ErrorCode::AuthRequired, "account credentials are missing")
                 .account(&account_id)
         })?;
-        Self::production_with_secret(account_id, config, secrets, secret)
+        Self::production_with_secret(account_id, config, secrets, secret, profiles)
     }
 
     pub(crate) fn production_with_secret(
@@ -67,9 +68,11 @@ impl EasMailbox {
         config: AccountConfig,
         secrets: Arc<dyn SecretStore>,
         secret: AccountSecret,
+        profiles: &ProfileRegistry,
     ) -> Result<Self> {
+        config.validate(profiles)?;
         let transport = HttpTransport::new(
-            ProfileRegistry::compiled().require(&config.profile)?,
+            profiles.require(&config.profile)?,
             config.username.clone(),
             secret.password.clone(),
             secret.device_id.clone(),
@@ -93,7 +96,7 @@ impl EasMailbox {
         policy_key: u32,
         policy: Option<PolicyDecision>,
     ) -> Result<Self> {
-        config.validate()?;
+        config.validate_shape()?;
         let account = BackendAccount {
             account_id,
             profile: config.profile.clone(),

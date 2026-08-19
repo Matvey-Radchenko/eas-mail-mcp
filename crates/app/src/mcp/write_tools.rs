@@ -9,7 +9,7 @@ use crate::model::{
 
 #[tool_router(router = write_tools, vis = "pub(crate)")]
 impl MailMcpServer {
-    /// Changes a message's read state after explicit client confirmation.
+    /// Immediately changes a message's read state for a write-enabled account.
     #[tool(
         name = "mail_mark_read",
         annotations(
@@ -27,7 +27,7 @@ impl MailMcpServer {
         Json(self.runtime.mail_mark_read(input).await)
     }
 
-    /// Sends a plain-text message after explicit client confirmation.
+    /// Immediately sends a plain-text message for a write-enabled account.
     #[tool(
         name = "mail_send",
         annotations(
@@ -45,7 +45,7 @@ impl MailMcpServer {
         Json(self.runtime.mail_send(input).await)
     }
 
-    /// Replies to a referenced message after explicit client confirmation.
+    /// Immediately replies to a referenced message for a write-enabled account.
     #[tool(
         name = "mail_reply",
         annotations(
@@ -63,7 +63,7 @@ impl MailMcpServer {
         Json(self.runtime.mail_reply(input).await)
     }
 
-    /// Forwards a referenced message after explicit client confirmation.
+    /// Immediately forwards a referenced message for a write-enabled account.
     #[tool(
         name = "mail_forward",
         annotations(

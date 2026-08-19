@@ -14,7 +14,8 @@ name = "eas-mail-mcp"
 path = "src/main.rs"
 
 [dependencies]
-eas-mail-protocol = { version = "0.1.0", path = "../eas" }
+eas-mail-protocol = { version = "=0.2.0-beta.2", path = "../eas" }
+eas-mail-profile = { version = "=0.2.0-beta.2", path = "../profile" }
 anyhow.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
@@ -33,6 +34,7 @@ schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 toml.workspace = true
@@ -42,7 +44,7 @@ wait-timeout.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
+rcgen.workspace = true
 
 [lints]
 workspace = true

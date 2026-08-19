@@ -2,6 +2,7 @@ mod command;
 mod delivery;
 mod files;
 mod goldens;
+mod npm;
 mod performance;
 mod profile;
 mod public_audit;
@@ -33,7 +34,7 @@ enum Task {
     Files,
     /// Scans tracked project text for credentials.
     Secrets,
-    /// Validates build-time endpoint profiles.
+    /// Validates portable endpoint profile files.
     Profile {
         #[command(subcommand)]
         command: ProfileCommand,
@@ -44,12 +45,13 @@ enum Task {
         #[arg(long)]
         denylist: Option<PathBuf>,
     },
-    /// Builds arm64, x86_64, and dual-architecture handoff bundles.
-    BuildBundles {
-        /// Non-development profile bundle to embed in both architectures.
-        #[arg(long)]
-        profile_bundle: PathBuf,
+    /// Verifies or builds the public npm package set.
+    Npm {
+        #[command(subcommand)]
+        command: NpmCommand,
     },
+    /// Builds generic arm64, x86_64, and dual-architecture handoff bundles.
+    BuildBundles,
     /// Runs the real-account read-only or self-write harness.
     Live {
         /// Sends only to the same mailbox after an interactive confirmation.
@@ -91,10 +93,15 @@ enum ProfileCommand {
         /// Profile bundle; defaults to the public development example.
         #[arg(long, default_value = "profile.example.toml")]
         profile_bundle: PathBuf,
-        /// Also require that the bundle is eligible for release artifacts.
-        #[arg(long)]
-        release: bool,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum NpmCommand {
+    /// Verifies Cargo/npm versions, platform selectors, and lifecycle safety.
+    Verify,
+    /// Builds both native binaries and creates installable npm tarballs.
+    Pack,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -108,12 +115,16 @@ fn main() -> anyhow::Result<()> {
         Task::Files => files::check(root),
         Task::Secrets => quality::secrets(root),
         Task::Profile { command } => match command {
-            ProfileCommand::Verify { profile_bundle, release } => {
-                profile::verify(root, &profile_bundle, release).map(|_| ())
+            ProfileCommand::Verify { profile_bundle } => {
+                profile::verify(root, &profile_bundle).map(|_| ())
             }
         },
         Task::PublicAudit { denylist } => public_audit::run(root, denylist.as_deref()),
-        Task::BuildBundles { profile_bundle } => delivery::build(root, &profile_bundle),
+        Task::Npm { command } => match command {
+            NpmCommand::Verify => npm::verify(root),
+            NpmCommand::Pack => npm::pack(root),
+        },
+        Task::BuildBundles => delivery::build(root),
         Task::Live { self_write } => quality::live(root, self_write),
         Task::Fuzz { seconds } => quality::fuzz(root, seconds),
         Task::Mutants => quality::mutants(root),

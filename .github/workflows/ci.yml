@@ -42,7 +42,7 @@ jobs:
       - name: Run complete quality gate
         run: cargo xtask check
 
-  example-build:
+  npm-pack:
     runs-on: macos-15
     steps:
       - name: Checkout full history
@@ -55,17 +55,14 @@ jobs:
           rustup toolchain install 1.95.0 --profile minimal \
             --target aarch64-apple-darwin,x86_64-apple-darwin
           rustup default 1.95.0
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
       - name: Verify public profile
         run: cargo xtask profile verify
-      - name: Reject public profile for release bundles
-        run: |
-          if cargo xtask profile verify --release; then
-            echo 'development profile unexpectedly passed the release gate' >&2
-            exit 1
-          fi
-      - name: Build both example targets
-        run: |
-          cargo build --locked --release --package eas-mail-mcp --target aarch64-apple-darwin
-          cargo build --locked --release --package eas-mail-mcp --target x86_64-apple-darwin
+      - name: Build and smoke-test npm tarballs
+        run: cargo xtask npm pack
       - name: Audit public tree and history
         run: cargo xtask public-audit

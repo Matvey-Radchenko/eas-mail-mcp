@@ -67,7 +67,7 @@ impl From<&StoredPolicy> for PolicyDecision {
     }
 }
 
-/// Single versioned Keychain value used by the application.
+/// Single versioned operating-system credential value used by the application.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SecretBundle {
     /// Secret schema version.
@@ -121,7 +121,7 @@ impl SecretBundle {
         if self.version != 1 || self.hmac_key.len() != 32 {
             return Err(AppError::new(
                 ErrorCode::StorageError,
-                "Keychain secret bundle is invalid",
+                "credential-store secret bundle is invalid",
             ));
         }
         if self.accounts.values().any(|secret| {
@@ -131,7 +131,7 @@ impl SecretBundle {
         }) {
             return Err(AppError::new(
                 ErrorCode::StorageError,
-                "Keychain account secret is invalid",
+                "credential-store account secret is invalid",
             ));
         }
         Ok(())
@@ -154,7 +154,7 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self) -> Result<()>;
 }
 
-/// macOS Keychain implementation.
+/// Native macOS Keychain implementation.
 #[derive(Debug, Clone)]
 pub struct KeychainStore {
     journal_path: PathBuf,
@@ -173,7 +173,10 @@ impl KeychainStore {
             Ok(value) => {
                 let value = Zeroizing::new(value);
                 let bundle: SecretBundle = serde_json::from_str(value.as_str()).map_err(|_| {
-                    AppError::new(ErrorCode::StorageError, "Keychain secret bundle is invalid")
+                    AppError::new(
+                        ErrorCode::StorageError,
+                        "credential-store secret bundle is invalid",
+                    )
                 })?;
                 bundle.validate()?;
                 Ok(bundle)
@@ -191,7 +194,7 @@ impl KeychainStore {
         bundle.validate()?;
         let entry = keyring::Entry::new(SERVICE, BUNDLE_KEY).map_err(keychain_error)?;
         let document = Zeroizing::new(serde_json::to_string(bundle).map_err(|_| {
-            AppError::new(ErrorCode::StorageError, "cannot serialize Keychain secret bundle")
+            AppError::new(ErrorCode::StorageError, "cannot serialize credential-store bundle")
         })?);
         entry.set_password(document.as_str()).map_err(keychain_error)
     }
@@ -262,8 +265,8 @@ impl SecretStore for MemorySecretStore {
 }
 
 fn keychain_error(_: keyring::Error) -> AppError {
-    AppError::new(ErrorCode::AuthRequired, "macOS Keychain is unavailable")
-        .remediation("Unlock the login keychain and retry")
+    AppError::new(ErrorCode::AuthRequired, "operating-system credential store is unavailable")
+        .remediation("Unlock the user credential store and retry")
 }
 
 fn lock_error() -> AppError {

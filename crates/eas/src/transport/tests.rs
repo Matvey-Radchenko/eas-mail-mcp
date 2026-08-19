@@ -71,7 +71,7 @@ async fn http_transport_checks_origin_status_and_request_invariants() -> anyhow:
     anyhow::ensure!(
         request.to_ascii_lowercase().contains("content-type: application/vnd.ms-sync.wbxml")
     );
-    let user_agent = format!("EasMailMCP/{} (macOS)", env!("CARGO_PKG_VERSION"));
+    let user_agent = crate::device::user_agent(env!("CARGO_PKG_VERSION"));
     anyhow::ensure!(request.contains(&user_agent));
     anyhow::ensure!(request.ends_with("fixture-body"));
     let query = request

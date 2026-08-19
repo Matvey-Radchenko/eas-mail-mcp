@@ -1,56 +1,44 @@
 # Установка EAS Mail MCP
 
-Публичный `v0.1.2` распространяется только как исходный код. Готовый bundle для
-реального сервера должен предоставить оператор, который собрал его с локальным
-build-time профилем и опубликовал SHA-256.
+Поддерживаются macOS 14+ на Apple Silicon и Intel. Windows и Linux не входят в
+релиз `0.2.0`.
 
-## Передача одного файла ИИ-агенту
-
-`eas-mail-mcp-0.1.2-macos-handoff.tar.gz` содержит оба macOS-бинарника,
-installer, внутренний `SHA256SUMS` и `INSTALL-FOR-AI-AGENT.md`. Коллега скачивает
-его локально и передаёт coding agent путь к файлу с просьбой выполнить инструкцию
-из архива. Загружать корпоративный бинарник во внешний чат не требуется.
-
-Внешний `.tar.gz.sha256` можно публиковать отдельно через доверенный канал для
-проверки архива до распаковки. Для пилотной передачи одного файла installer всё
-равно проверит каждый распакованный payload по внутреннему manifest. Внутренний
-manifest обнаруживает повреждение, но сам по себе не подтверждает автора bundle.
-
-## Проверка bundle
-
-Выберите архив под архитектуру Mac: `aarch64-apple-darwin` для Apple Silicon или
-`x86_64-apple-darwin` для Intel. До распаковки проверьте внешний hash:
+## Установка через npm
 
 ```bash
-shasum -a 256 -c eas-mail-mcp-0.1.2-<target>.tar.gz.sha256
-tar -xzf eas-mail-mcp-0.1.2-<target>.tar.gz
-cd eas-mail-mcp-0.1.2-<target>
-cat BUILD-METADATA.json
-./install.sh
+npm install -g eas-mail-mcp@next
+eas-mail-mcp --version
+eas-mail-mcp native-path
 ```
 
-Установщик повторно проверяет файлы по `SHA256SUMS`, сверяет архитектуру и
-создаёт `~/.local/bin/eas-mail-mcp`. `sudo` не используется. Для unsigned bundle
-с quarantine снятие атрибута требует отдельного подтверждения после проверки
-hash.
+Npm нужен для установки и запуска административных CLI-команд. При настройке
+клиента записывается прямой путь к Rust-бинарнику, поэтому Node.js не остаётся в
+фоновом MCP-процессе. Пакет не использует `install` или `postinstall` scripts.
 
-## Настройка аккаунтов
+## Настройка
 
-Доступные ID профилей зависят от конкретной сборки. Посмотреть metadata сборки и
-запустить мастер:
+Запустите единый мастер:
 
 ```bash
-eas-mail-mcp --version --verbose
 eas-mail-mcp setup
-eas-mail-mcp account list
-eas-mail-mcp doctor
 ```
 
-Пароль вводится в закрытом prompt и сохраняется только в macOS Keychain. Запись
-по умолчанию выключена и включается отдельно после read-only проверки:
+Если команда получила готовый профиль, его можно импортировать заранее:
 
 ```bash
-eas-mail-mcp account set-writes <account-id> on
+eas-mail-mcp profile import ./team-profile.toml
+eas-mail-mcp setup
+```
+
+Профиль содержит адрес EAS-сервера, разрешённые почтовые домены и параметры TLS,
+но не пароль и не данные конкретной учётной записи. Пароль вводится в закрытом
+prompt и сохраняется только в macOS Keychain. Запись по умолчанию выключена.
+
+Локальные файлы:
+
+```text
+~/Library/Application Support/EAS Mail MCP/profiles.toml
+~/Library/Application Support/EAS Mail MCP/config.toml
 ```
 
 ## Подключение клиентов
@@ -61,21 +49,32 @@ eas-mail-mcp client configure claude
 eas-mail-mcp client configure opencode
 ```
 
-Перед изменением пользовательских конфигов создаётся backup. Неизвестная версия
-клиента отклоняется без изменений. Для write tools настраивается режим `ask`, но
-он является подтверждением интерфейса, а не аутентификацией.
+Перед изменением пользовательских конфигов создаётся backup. Имя и версия
+клиента сохраняются только для диагностики и не блокируют настройку. Команда
+регистрирует MCP и удаляет устаревшие `approve`/`allow`-правила, созданные
+предыдущими beta-сборками. Write tool выполняется сразу после вызова, если запись
+включена для аккаунта.
 
-## Удаление
-
-По умолчанию данные пользователя и Keychain сохраняются:
-
-```bash
-~/.local/lib/eas-mail-mcp/0.1.2/share/uninstall.sh
-```
-
-Удалить также client entries и локальные данные:
+Проверка после настройки:
 
 ```bash
-~/.local/lib/eas-mail-mcp/0.1.2/share/uninstall.sh \
-  --clients codex,claude,opencode --delete-data
+eas-mail-mcp account list
+eas-mail-mcp profile list
+eas-mail-mcp doctor
 ```
+
+## Обновление и удаление
+
+Обновление не удаляет локальные профили, аккаунты или Keychain:
+
+```bash
+npm install -g eas-mail-mcp@next
+```
+
+Удаление npm-пакета также оставляет пользовательские данные на месте:
+
+```bash
+npm uninstall -g eas-mail-mcp
+```
+
+Старый локальный `tar.gz`-установщик остаётся только резервным путём для пилота.

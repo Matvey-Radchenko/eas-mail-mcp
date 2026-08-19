@@ -9,16 +9,13 @@ use anyhow::{Context as _, Result};
 use sha2::{Digest as _, Sha256};
 
 use crate::command::{output, run, run_env};
-use crate::profile;
 
 pub(super) const BINARY: &str = "eas-mail-mcp";
 const MACOS_DEPLOYMENT_TARGET: &str = "14.0";
-const MAX_BINARY_BYTES: u64 = 20 * 1024 * 1024;
+pub(super) const MAX_BINARY_BYTES: u64 = 20 * 1024 * 1024;
 
-pub(crate) fn build(root: &Path, profile_path: &Path) -> Result<()> {
+pub(crate) fn build(root: &Path) -> Result<()> {
     ensure_clean(root)?;
-    let profile = profile::verify(root, profile_path, true)?;
-    let profile_source = profile.source.to_string_lossy().into_owned();
     let rustflags = remap_flags(root)?;
     let dist = root.join("dist");
     if dist.exists() {
@@ -31,18 +28,14 @@ pub(crate) fn build(root: &Path, profile_path: &Path) -> Result<()> {
             root,
             "cargo",
             ["build", "--release", "--locked", "--target", target, "--package", BINARY],
-            &[
-                ("MACOSX_DEPLOYMENT_TARGET", MACOS_DEPLOYMENT_TARGET),
-                ("EAS_MAIL_PROFILE_BUNDLE", &profile_source),
-                ("RUSTFLAGS", &rustflags),
-            ],
+            &[("MACOSX_DEPLOYMENT_TARGET", MACOS_DEPLOYMENT_TARGET), ("RUSTFLAGS", &rustflags)],
         )?;
-        let bundle = create_bundle(root, &dist, target, &profile)?;
+        let bundle = create_bundle(root, &dist, target)?;
         smoke::verify(&dist, &bundle, target)?;
         archive(&dist, &bundle)?;
         bundles.push((target, bundle));
     }
-    let handoff = handoff::create(root, &dist, &bundles, &profile)?;
+    let handoff = handoff::create(root, &dist, &bundles)?;
     smoke::verify_handoff(&dist, &handoff)?;
     archive(&dist, &handoff)?;
     Ok(())
@@ -54,12 +47,7 @@ fn ensure_clean(root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn create_bundle(
-    root: &Path,
-    dist: &Path,
-    target: &str,
-    profile: &eas_mail_profile::VerifiedBundle,
-) -> Result<PathBuf> {
+fn create_bundle(root: &Path, dist: &Path, target: &str) -> Result<PathBuf> {
     let name = format!("{BINARY}-{}-{target}", env!("CARGO_PKG_VERSION"));
     let bundle = dist.join(&name);
     fs::create_dir_all(bundle.join("bin"))?;
@@ -67,7 +55,7 @@ fn create_bundle(
     let destination = bundle.join("bin").join(BINARY);
     fs::copy(&source, &destination).with_context(|| format!("cannot copy {}", source.display()))?;
     make_executable(&destination)?;
-    verify_binary_strings(root, &destination, profile)?;
+    verify_binary_strings(root, &destination)?;
     sign_macho(&bundle, &destination)?;
     verify_macho(&bundle, &destination, target)?;
     let size = fs::metadata(&destination)?.len();
@@ -79,7 +67,7 @@ fn create_bundle(
     fs::copy(root.join("scripts/uninstall.sh"), bundle.join("uninstall.sh"))?;
     fs::copy(root.join("docs/installation.ru.md"), bundle.join("installation.ru.md"))?;
     fs::write(bundle.join("TARGET_ARCH"), format!("{}\n", target_arch(target)))?;
-    write_build_metadata(root, &bundle, &destination, target, profile)?;
+    write_build_metadata(root, &bundle, &destination, target)?;
     make_executable(&bundle.join("install.sh"))?;
     make_executable(&bundle.join("uninstall.sh"))?;
     write_manifest(
@@ -126,12 +114,12 @@ pub(super) fn digest(path: &Path) -> Result<String> {
     Ok(Sha256::digest(fs::read(path)?).iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-fn sign_macho(root: &Path, binary: &Path) -> Result<()> {
+pub(super) fn sign_macho(root: &Path, binary: &Path) -> Result<()> {
     let binary = binary.to_string_lossy();
     run(root, "codesign", ["--force", "--sign", "-", "--timestamp=none", binary.as_ref()])
 }
 
-fn verify_macho(root: &Path, binary: &Path, target: &str) -> Result<()> {
+pub(super) fn verify_macho(root: &Path, binary: &Path, target: &str) -> Result<()> {
     let binary = binary.to_string_lossy();
     output(root, "codesign", ["--verify", "--strict", binary.as_ref()])?;
     let architectures = output(root, "lipo", ["-archs", binary.as_ref()])?;
@@ -164,7 +152,7 @@ pub(super) fn make_executable(_: &Path) -> Result<()> {
     anyhow::bail!("bundle delivery supports macOS only")
 }
 
-fn remap_flags(root: &Path) -> Result<String> {
+pub(super) fn remap_flags(root: &Path) -> Result<String> {
     let cargo_home = std::env::var_os("CARGO_HOME")
         .map(PathBuf::from)
         .or_else(|| dirs::home_dir().map(|home| home.join(".cargo")))
@@ -176,41 +164,25 @@ fn remap_flags(root: &Path) -> Result<String> {
     ))
 }
 
-fn verify_binary_strings(
-    root: &Path,
-    binary: &Path,
-    profile: &eas_mail_profile::VerifiedBundle,
-) -> Result<()> {
+pub(super) fn verify_binary_strings(root: &Path, binary: &Path) -> Result<()> {
     let binary_text = output(root, "strings", [binary.as_os_str()])?;
-    let forbidden =
-        [root.to_string_lossy().into_owned(), ["/", "Users", "/"].concat(), "/private/tmp/".into()];
+    let forbidden = [
+        root.to_string_lossy().into_owned(),
+        ["/", "Users", "/"].concat(),
+        "/private/tmp/".into(),
+        "EAS_MAIL_PROFILE_BUNDLE".into(),
+    ];
     for marker in forbidden {
         anyhow::ensure!(!binary_text.contains(&marker), "release binary leaks a local build path");
     }
-    anyhow::ensure!(
-        binary_text.contains(&profile.hash),
-        "release binary does not expose its profile bundle hash"
-    );
-    anyhow::ensure!(
-        binary_text.contains(&profile.manifest.bundle_version),
-        "release binary does not expose its profile bundle version"
-    );
     Ok(())
 }
 
-fn write_build_metadata(
-    root: &Path,
-    bundle: &Path,
-    binary: &Path,
-    target: &str,
-    profile: &eas_mail_profile::VerifiedBundle,
-) -> Result<()> {
+fn write_build_metadata(root: &Path, bundle: &Path, binary: &Path, target: &str) -> Result<()> {
     let source_sha = output(root, "git", ["rev-parse", "HEAD"])?;
     let document = serde_json::json!({
         "source_sha": source_sha.trim(),
         "target": target,
-        "profile_bundle_version": profile.manifest.bundle_version,
-        "profile_bundle_sha256": profile.hash,
         "artifact_sha256": digest(binary)?,
     });
     fs::write(

@@ -9,7 +9,7 @@ use eas_mail_mcp::backend::{
 };
 use eas_mail_mcp::{AppError, ErrorCode, Result};
 use eas_mail_protocol::{
-    Attachment, CalendarFields, CollectionKind, Folder, MailFields, Patch, ProfileRegistry,
+    Attachment, CalendarFields, CollectionKind, Folder, MailFields, Patch, ProfileKey,
 };
 
 /// Deterministic high-level backend used by MCP black-box tests.
@@ -29,7 +29,7 @@ impl FakeBackend {
         Self {
             account: BackendAccount {
                 account_id: account_id.into(),
-                profile: ProfileRegistry::compiled().default_key(),
+                profile: ProfileKey::default(),
                 email: format!("{account_id}@example.invalid"),
                 enabled: true,
                 write_enabled: true,

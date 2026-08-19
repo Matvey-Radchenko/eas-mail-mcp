@@ -70,7 +70,6 @@ async fn repeated_write_uses_one_backend_operation_and_conflicts_on_changed_payl
     let clock = ManualClock::new(timestamp()?);
     let backend = Arc::new(FakeBackend::new("work"));
     let (runtime, _directory) = runtime(vec![backend.clone()], &clock)?;
-    anyhow::ensure!(runtime.authorize_client("codex-mcp-client", "0.133.4"));
     let input = send_input("first");
 
     let first = runtime.mail_send(input.clone()).await;
@@ -83,17 +82,6 @@ async fn repeated_write_uses_one_backend_operation_and_conflicts_on_changed_payl
         conflict.error.is_some_and(|error| error.code == ErrorCode::IdempotencyConflict)
     );
     anyhow::ensure!(backend.operations()?.len() == 1);
-    Ok(())
-}
-
-#[tokio::test]
-async fn unsupported_client_remains_read_only() -> anyhow::Result<()> {
-    let clock = ManualClock::new(timestamp()?);
-    let backend = Arc::new(FakeBackend::new("work"));
-    let (runtime, _directory) = runtime(vec![backend], &clock)?;
-    anyhow::ensure!(!runtime.authorize_client("Unknown", "9.0.0"));
-    let response = runtime.mail_send(send_input("blocked")).await;
-    anyhow::ensure!(response.error.is_some_and(|error| error.code == ErrorCode::ValidationFailed));
     Ok(())
 }
 
@@ -138,7 +126,6 @@ async fn direct_read_remote_wipe_purges_references_files_and_journal() -> anyhow
     let clock = ManualClock::new(timestamp()?);
     let wiped = Arc::new(FakeBackend::new("work"));
     let (runtime, _directory) = runtime(vec![wiped.clone()], &clock)?;
-    anyhow::ensure!(runtime.authorize_client("codex-mcp-client", "0.133.4"));
     anyhow::ensure!(runtime.mail_send(send_input("before wipe")).await.error.is_none());
 
     let listed = runtime
@@ -185,7 +172,6 @@ async fn write_remote_wipe_removes_pending_idempotency_state() -> anyhow::Result
     let clock = ManualClock::new(timestamp()?);
     let wiped = Arc::new(FakeBackend::new("work"));
     let (runtime, _directory) = runtime(vec![wiped.clone()], &clock)?;
-    anyhow::ensure!(runtime.authorize_client("codex-mcp-client", "0.133.4"));
     wiped.set_failure(Some(ErrorCode::RemoteWipe))?;
 
     let response = runtime.mail_send(send_input("wipe")).await;

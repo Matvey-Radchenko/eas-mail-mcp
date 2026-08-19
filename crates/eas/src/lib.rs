@@ -3,6 +3,7 @@
 #![deny(missing_docs)]
 
 mod client;
+mod device;
 mod error;
 mod model;
 mod profile;
