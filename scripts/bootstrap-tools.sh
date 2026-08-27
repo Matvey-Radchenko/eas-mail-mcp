@@ -2,6 +2,7 @@
 set -eu
 
 rustup component add llvm-tools-preview --toolchain 1.95.0
+rustup target add aarch64-apple-darwin x86_64-apple-darwin --toolchain 1.95.0
 brew install cargo-nextest cargo-deny cargo-llvm-cov cargo-fuzz gitleaks
 
 if ! command -v cargo-mutants >/dev/null 2>&1; then

@@ -111,7 +111,14 @@ async fn attachment_download_uses_private_account_cache_and_plain_text_output() 
         .await
         .data
         .ok_or_else(|| anyhow::anyhow!("attachment download failed"))?;
-    anyhow::ensure!(downloaded.path.contains("/work/file_"));
+    let downloaded_path = std::path::Path::new(&downloaded.path);
+    anyhow::ensure!(
+        downloaded_path.parent().and_then(std::path::Path::file_name)
+            == Some(std::ffi::OsStr::new("work"))
+    );
+    anyhow::ensure!(
+        downloaded_path.file_name().is_some_and(|name| name.to_string_lossy().starts_with("file_"))
+    );
     anyhow::ensure!(std::fs::read(&downloaded.path)? == b"attachment payload");
     #[cfg(unix)]
     {

@@ -14,12 +14,21 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
-  stage:
-    runs-on: macos-15
-    environment: npm
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos
+            os: macos-15
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - name: windows
+            os: windows-2022
+            targets: x86_64-pc-windows-msvc
+    name: Build npm packages (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v6
@@ -27,10 +36,45 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Install pinned Rust toolchain
-        run: |
-          rustup toolchain install 1.95.0 --profile minimal \
-            --target aarch64-apple-darwin,x86_64-apple-darwin
-          rustup default 1.95.0
+        run: rustup toolchain install 1.95.0 --profile minimal --target ${{ matrix.targets }}
+      - name: Select pinned Rust toolchain
+        run: rustup default 1.95.0
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Build and smoke-test host tarballs
+        run: cargo xtask npm pack
+      - name: Audit public tree and history
+        run: cargo xtask public-audit
+      - name: Upload npm tarballs
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.name }}
+          path: |
+            dist/npm/*.tgz
+            dist/npm/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  stage:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download built packages
+        uses: actions/download-artifact@v5
+        with:
+          path: dist/staged
       - name: Install Node.js and npm with trusted publishing support
         uses: actions/setup-node@v6
         with:
@@ -39,8 +83,6 @@ jobs:
           package-manager-cache: false
       - name: Install npm with staged publishing support
         run: npm install --global 'npm@^11.15.0'
-      - name: Build and smoke-test tarballs
-        run: cargo xtask npm pack
       - name: Validate release tag
         env:
           NPM_TAG: ${{ inputs.npm_tag }}
@@ -58,18 +100,19 @@ jobs:
         env:
           NPM_TAG: ${{ inputs.npm_tag }}
         run: |
-          npm stage publish dist/npm/eas-mail-mcp-darwin-arm64-*.tgz --access public --tag "$NPM_TAG"
-          npm stage publish dist/npm/eas-mail-mcp-darwin-x64-*.tgz --access public --tag "$NPM_TAG"
+          npm stage publish dist/staged/npm-macos/eas-mail-mcp-darwin-arm64-*.tgz --access public --tag "$NPM_TAG"
+          npm stage publish dist/staged/npm-macos/eas-mail-mcp-darwin-x64-*.tgz --access public --tag "$NPM_TAG"
+          npm stage publish dist/staged/npm-windows/eas-mail-mcp-win32-x64-*.tgz --access public --tag "$NPM_TAG"
       - name: Stage root package
         env:
           NPM_TAG: ${{ inputs.npm_tag }}
-        run: npm stage publish dist/npm/eas-mail-mcp-[0-9]*.tgz --access public --tag "$NPM_TAG"
+        run: npm stage publish dist/staged/npm-macos/eas-mail-mcp-[0-9]*.tgz --access public --tag "$NPM_TAG"
       - name: Record review instructions
         run: |
           {
             echo '### npm candidate staged'
             echo
-            echo 'Download and install the three staged tarballs before approval.'
-            echo 'Approve both native packages first and the root package last.'
+            echo 'Download and install the four staged tarballs before approval.'
+            echo 'Approve all three native packages first and the root package last.'
             echo 'No package from this run is public until npm stage approval.'
           } >> "$GITHUB_STEP_SUMMARY"

@@ -1,11 +1,11 @@
 # Getting started
 
 This guide covers npm installation, local endpoint profiles, multiple accounts,
-and MCP client configuration on macOS.
+and MCP client configuration on macOS and Windows.
 
 ## Requirements
 
-- macOS 14 or later on Apple Silicon or Intel;
+- macOS 14 or later on Apple Silicon or Intel, or Windows 11 x64;
 - Node.js 18 or later with npm;
 - an Exchange ActiveSync 14.1 endpoint using Basic Auth over TLS;
 - access to any network, VPN, system CA, or public CA certificate required by
@@ -25,7 +25,7 @@ eas-mail-mcp --version
 eas-mail-mcp native-path
 ```
 
-The root npm package selects the matching macOS native package. It has no
+The root npm package selects the matching native package. It has no
 `install` or `postinstall` script. Node.js launches administrative commands,
 but configured MCP clients execute the printed Rust binary directly, so Node.js
 does not remain in the active MCP connection.
@@ -43,7 +43,7 @@ On a first run, the wizard:
    hidden password.
 3. Checks the profile and TLS connection, authentication, EAS 14.1
    capabilities, Provision policy, and FolderSync.
-4. Saves the account and Keychain credentials only after verification succeeds.
+4. Saves the account and operating-system credentials only after verification succeeds.
 5. Offers to enable mail and calendar writes. They are off by default.
 6. Offers to add another account.
 7. Configures detected Codex, Claude Code, and OpenCode clients with backup and
@@ -204,7 +204,7 @@ OpenCode, `~/.config/opencode/opencode.json` or `opencode.jsonc`:
 
 Do not put email, username, password, endpoint metadata, or environment secrets
 in these client entries. The native process loads non-secret account metadata
-from local config and credentials from Keychain.
+from local config and credentials from Keychain or Windows Credential Manager.
 
 ## Verify the installation
 
@@ -237,20 +237,35 @@ changing its MCP entry.
 
 ## Local data
 
-Non-secret files are stored under:
+Non-secret configuration and cache files are stored under:
 
 ```text
-~/Library/Application Support/EAS Mail MCP/profiles.toml
-~/Library/Application Support/EAS Mail MCP/config.toml
+macOS configuration: ~/Library/Application Support/EAS Mail MCP
+macOS cache:         ~/Library/Caches/EAS Mail MCP
+Windows:             %LOCALAPPDATA%\EAS Mail MCP
 ```
 
-macOS Keychain stores passwords, Device IDs, policy state, and the HMAC key used
-by the content-free idempotency journal. Mail and calendar data are not stored
-in a local database. Explicitly downloaded attachments use the application
-cache and expire automatically.
+macOS Keychain or Windows Credential Manager stores passwords, Device IDs,
+policy state, and the HMAC key used by the content-free idempotency journal.
+Mail and calendar data are not stored in a local database. Explicitly
+downloaded attachments use the application cache and expire automatically.
+
+### Windows 0.4.0 credential capacity
+
+All accounts share one Credential Manager entry. Windows limits its credential
+blob to [2,560 bytes](https://learn.microsoft.com/en-us/windows/win32/api/wincred/ns-wincred-credentialw);
+the current backend encodes the entire JSON secret bundle as UTF-16. Passwords,
+Device IDs, policy state, account IDs, and the HMAC key all count toward this
+limit, so there is no fixed maximum number of accounts.
+
+An oversized update returns `STORAGE_ERROR` with a size-limit message instead
+of suggesting that the store is locked. The previous credential entry remains
+unchanged. Remove unused accounts through the CLI before retrying. Do not
+shorten passwords or move secrets into configuration files to work around the
+limit. This restriction does not apply to macOS Keychain.
 
 The local profile and account files are trusted against accidental corruption,
-not a malicious process running as the same macOS user. See
+not a malicious process running as the same operating-system user. See
 [Security](../SECURITY.md) for the complete boundary.
 
 ## Update or uninstall
@@ -271,7 +286,7 @@ npm uninstall -g eas-mail-mcp
 ```
 
 Npm uninstall intentionally preserves local profiles, account configuration,
-the idempotency journal, and Keychain items. Remove accounts and profiles with
+the idempotency journal, and credential-store items. Remove accounts and profiles with
 the CLI before uninstalling when those settings should not remain.
 
 ## Troubleshooting
@@ -282,6 +297,7 @@ the CLI before uninstalling when those settings should not remain.
 | `ACCESS_DENIED` | Credentials may be valid, but EAS access, device policy, or an allowlist prevents the operation. Contact the operator. |
 | `CONFIG_INVALID` | The profile or account metadata failed strict validation. Run `profile validate` and do not weaken endpoint or TLS rules. |
 | `INTERACTIVE_REQUIRED` | A command without a TTY omitted required scripted arguments. Run the interactive wizard or provide the documented non-secret flags and `--password-stdin`. |
+| `STORAGE_ERROR` with a per-entry size-limit message | On Windows `0.4.0`, the combined secret bundle exceeds Credential Manager capacity. Remove unused accounts; unlocking the store or re-entering the same password will not fix the size limit. |
 | TLS or network failure | Check the required network/VPN and the profile's approved CA. Do not disable certificate or hostname verification. |
 | MCP is not visible | Run `client configure`, restart the client, then check `doctor` and the client's MCP diagnostics. |
 | Many MCP processes | Check how many client tasks or sessions are active. Each stdio connection has one process; stale processes should disappear after the owning client exits. |

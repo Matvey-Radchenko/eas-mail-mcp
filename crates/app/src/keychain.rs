@@ -154,7 +154,7 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self) -> Result<()>;
 }
 
-/// Native macOS Keychain implementation.
+/// Native operating-system credential-store implementation.
 #[derive(Debug, Clone)]
 pub struct KeychainStore {
     journal_path: PathBuf,
@@ -264,7 +264,17 @@ impl SecretStore for MemorySecretStore {
     }
 }
 
-fn keychain_error(_: keyring::Error) -> AppError {
+fn keychain_error(error: keyring::Error) -> AppError {
+    if matches!(error, keyring::Error::TooLong(_, _)) {
+        return AppError::new(
+            ErrorCode::StorageError,
+            "credential-store secret bundle exceeds the per-entry size limit",
+        )
+        .remediation(
+            "This version stores all accounts in one credential entry. Remove unused accounts \
+             and retry; unlocking the store does not increase its capacity",
+        );
+    }
     AppError::new(ErrorCode::AuthRequired, "operating-system credential store is unavailable")
         .remediation("Unlock the user credential store and retry")
 }

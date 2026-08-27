@@ -1,7 +1,7 @@
 # Command-line reference
 
 The operational CLI runs one command through the same `Runtime` used by MCP and
-then exits. It uses the same local profiles, Keychain credentials, EAS transport,
+then exits. It uses the same local profiles, operating-system credentials, EAS transport,
 validation, portable references, and idempotency journal. It does not start a
 daemon or create a mailbox database.
 

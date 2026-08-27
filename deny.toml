@@ -1,5 +1,5 @@
 [graph]
-targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msvc"]
 
 [advisories]
 yanked = "deny"
@@ -27,6 +27,17 @@ skip = [
     # chrono-tz 0.10 uses phf 0.12; html2text's parser stack uses phf 0.13.
     { name = "phf", version = "0.12.1" },
     { name = "phf_shared", version = "0.12.1" },
+    # rtoolbox 0.0.5 and keyring 3.6.3 require older, incompatible windows-sys
+    # lines. Keep the exceptions pinned until their upstream requirements align.
+    { name = "windows-sys", version = "=0.59.0" },
+    { name = "windows-sys", version = "=0.60.2" },
+    # rtoolbox's windows-sys 0.59 uses this import-library generation; keyring's
+    # windows-sys 0.60 uses windows-targets 0.53 and windows_x86_64_msvc 0.53.
+    { name = "windows-targets", version = "=0.52.6" },
+    { name = "windows_x86_64_msvc", version = "=0.52.6" },
+    # rmcp 3.0.1 uses 9.1; Windows setup uses 10 for suspended-child cleanup
+    # when job assignment or thread resumption fails. See ADR 0002.
+    { name = "process-wrap", version = "=9.1.0" },
 ]
 
 [sources]

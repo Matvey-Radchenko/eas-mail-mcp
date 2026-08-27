@@ -2,6 +2,9 @@ use std::io::Write as _;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt as _;
+
 use serde_json::Value;
 
 pub(super) fn event_ref(state: &Path, query: &str) -> anyhow::Result<String> {
@@ -37,16 +40,11 @@ pub(super) fn human_success(state: &Path, arguments: &[String]) -> anyhow::Resul
 }
 
 pub(super) fn run(state: &Path, arguments: &[String]) -> anyhow::Result<Output> {
-    Ok(Command::new(env!("CARGO_BIN_EXE_harness-cli"))
-        .args(arguments)
-        .env("EAS_MAIL_HARNESS_STATE_DIR", state)
-        .output()?)
+    Ok(harness_command(state, arguments).output()?)
 }
 
 pub(super) fn run_stdin(state: &Path, arguments: &[String], stdin: &str) -> anyhow::Result<Output> {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_harness-cli"))
-        .args(arguments)
-        .env("EAS_MAIL_HARNESS_STATE_DIR", state)
+    let mut child = harness_command(state, arguments)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -57,6 +55,14 @@ pub(super) fn run_stdin(state: &Path, arguments: &[String], stdin: &str) -> anyh
         .ok_or_else(|| anyhow::anyhow!("CLI stdin is unavailable"))?
         .write_all(stdin.as_bytes())?;
     Ok(child.wait_with_output()?)
+}
+
+fn harness_command(state: &Path, arguments: &[String]) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_harness-cli"));
+    command.args(arguments).env("EAS_MAIL_HARNESS_STATE_DIR", state);
+    #[cfg(windows)]
+    command.creation_flags(0x0000_0008);
+    command
 }
 
 pub(super) fn parse(bytes: &[u8]) -> anyhow::Result<Value> {

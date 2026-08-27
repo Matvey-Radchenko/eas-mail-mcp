@@ -11,7 +11,12 @@ pub(crate) fn standard_directories() -> Option<(PathBuf, PathBuf)> {
             home.join("Library/Caches/EAS Mail MCP"),
         ))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        let local = dirs::data_local_dir()?.join("EAS Mail MCP");
+        Some((local.clone(), local))
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     None
 }
 
@@ -34,7 +39,7 @@ pub(crate) fn open_private_new(path: &Path) -> io::Result<File> {
 pub(crate) fn open_private_append(path: &Path) -> io::Result<File> {
     reject_existing_link(path)?;
     let mut options = OpenOptions::new();
-    options.create(true).append(true);
+    options.create(true).read(true).append(true);
     set_file_mode(&mut options);
     let file = options.open(path)?;
     protect_file(path)?;
@@ -118,6 +123,14 @@ const fn set_file_permissions(_: &Path) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn is_reparse_point(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt as _;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
 const fn is_reparse_point(_: &fs::Metadata) -> bool {
     false
 }

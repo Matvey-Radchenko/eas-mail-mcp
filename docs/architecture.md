@@ -9,7 +9,7 @@ flowchart LR
     App --> Runtime["Process-local runtime"]
     Runtime --> Eas["eas crate"]
     Eas -->|"HTTPS EAS 14.1"| Exchange["Profile endpoint"]
-    App --> Keychain["macOS Keychain"]
+    App --> Credentials["Keychain / Windows Credential Manager"]
     App --> Profiles["Local profiles.toml"]
     App --> Journal["SQLite idempotency journal"]
     App --> Attachments["24-hour attachment cache"]
@@ -39,7 +39,7 @@ The `profile` crate parses and validates local endpoint profiles before the app
 constructs the EAS runtime. The resulting owned registry is passed through the
 runtime and transport. Production crates expose no fake URL or TLS bypass.
 
-Traits exist only for EAS transport, clock, ID generation, Keychain, operation
+Traits exist only for EAS transport, clock, ID generation, credential storage, operation
 journal, and account backend boundaries. WBXML and domain transformations are
 pure functions with concrete types.
 
@@ -54,7 +54,7 @@ redirects, protocol version, DeviceType, or TLS bypasses.
 
 Schema v1 profile files are normalized to the v2 identity model in memory.
 Account config continues to store the canonical Basic Auth username, so this
-migration never moves or rewrites Keychain credentials.
+migration never moves or rewrites stored credentials.
 
 The bundle version and SHA-256 hash are available through `--version --verbose`
 and `doctor`. Profile replacement is atomic and is rejected when it invalidates
@@ -121,7 +121,9 @@ UUID automatically.
 
 ## Persistent state
 
-- Keychain: password, Device ID, policy state, and operation HMAC key.
+- Paths: macOS uses its Application Support and Caches directories; Windows
+  uses `%LOCALAPPDATA%\EAS Mail MCP` for configuration, journal, and cache.
+- OS credential store: password, Device ID, policy state, and operation HMAC key.
 - Profile TOML: endpoint metadata and optional public trust certificate.
 - TOML: profile key, email, username, enabled state, and write permission.
 - SQLite: operation UUID, account, kind, payload HMAC, EAS ClientId, state,

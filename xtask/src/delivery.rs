@@ -15,6 +15,7 @@ const MACOS_DEPLOYMENT_TARGET: &str = "14.0";
 pub(super) const MAX_BINARY_BYTES: u64 = 20 * 1024 * 1024;
 
 pub(crate) fn build(root: &Path) -> Result<()> {
+    anyhow::ensure!(cfg!(target_os = "macos"), "handoff bundle delivery requires macOS");
     ensure_clean(root)?;
     let rustflags = remap_flags(root)?;
     let dist = root.join("dist");
@@ -148,7 +149,10 @@ pub(super) fn make_executable(path: &Path) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-pub(super) fn make_executable(_: &Path) -> Result<()> {
+pub(super) const fn make_executable(_: &Path) -> Result<()> {
+    #[cfg(windows)]
+    return Ok(());
+    #[cfg(not(windows))]
     anyhow::bail!("bundle delivery supports macOS only")
 }
 
@@ -165,17 +169,42 @@ pub(super) fn remap_flags(root: &Path) -> Result<String> {
 }
 
 pub(super) fn verify_binary_strings(root: &Path, binary: &Path) -> Result<()> {
-    let binary_text = output(root, "strings", [binary.as_os_str()])?;
-    crate::public_audit::audit_bytes(root, "release binary", binary_text.as_bytes())?;
+    let binary_bytes = fs::read(binary)?;
+    crate::public_audit::audit_bytes(root, "release binary", &binary_bytes)?;
+    let binary_text = String::from_utf8_lossy(&binary_bytes);
     let forbidden = [
         root.to_string_lossy().into_owned(),
         ["/", "Users", "/"].concat(),
+        ["\\", "Users", "\\"].concat(),
         "/private/tmp/".into(),
+        ["\\", "AppData", "\\", "Local", "\\", "Temp", "\\"].concat(),
         "EAS_MAIL_PROFILE_BUNDLE".into(),
     ];
     for marker in forbidden {
         anyhow::ensure!(!binary_text.contains(&marker), "release binary leaks a local build path");
     }
+    Ok(())
+}
+
+pub(super) fn verify_pe_x64(binary: &Path) -> Result<()> {
+    let bytes = fs::read(binary)?;
+    anyhow::ensure!(bytes.starts_with(b"MZ"), "Windows binary is not a PE executable");
+    let offset = bytes
+        .get(0x3c..0x40)
+        .and_then(|value| <[u8; 4]>::try_from(value).ok())
+        .map(u32::from_le_bytes)
+        .map(|value| value as usize)
+        .context("Windows binary has no PE header offset")?;
+    anyhow::ensure!(
+        bytes.get(offset..offset.saturating_add(4)) == Some(b"PE\0\0"),
+        "Windows binary has an invalid PE signature"
+    );
+    let machine = bytes
+        .get(offset.saturating_add(4)..offset.saturating_add(6))
+        .and_then(|value| <[u8; 2]>::try_from(value).ok())
+        .map(u16::from_le_bytes)
+        .context("Windows binary has no machine field")?;
+    anyhow::ensure!(machine == 0x8664, "Windows binary is not x86_64 PE");
     Ok(())
 }
 

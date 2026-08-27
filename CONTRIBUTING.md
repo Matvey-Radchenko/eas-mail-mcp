@@ -12,11 +12,14 @@ Rust 1.95.0 is pinned in `rust-toolchain.toml`. Install local tools with:
 ./scripts/bootstrap-tools.sh
 ```
 
+On Windows PowerShell, run `./scripts/bootstrap-tools.ps1` instead.
+
 ## Code boundaries
 
 - `profile` validates portable runtime profile manifests and trust material.
 - `eas` owns WBXML, EAS commands, profile-backed endpoints, and HTTPS transport.
-- `app` owns account configuration, Keychain, idempotency, CLI, and MCP tools.
+- `app` owns account configuration, platform credential storage, idempotency,
+  CLI, and MCP tools.
 - `harness` owns fake I/O and black-box process drivers.
 - `xtask` owns engineering gates and release assembly.
 - `fuzz` is a separate nightly-only workspace.

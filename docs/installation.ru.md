@@ -1,18 +1,19 @@
 # Установка EAS Mail MCP
 
-Основной сценарий установки на macOS: npm-пакет и интерактивный мастер. Вводить
-пароль в MCP-конфиг, `.env` или аргументы команды не нужно.
+Основной сценарий установки на macOS и Windows: npm-пакет и интерактивный
+мастер. Вводить пароль в MCP-конфиг, `.env` или аргументы команды не нужно.
 
 Полная англоязычная версия инструкции: [Getting started](getting-started.md).
 
 ## Требования
 
-- macOS 14+ на Apple Silicon или Intel;
+- macOS 14+ на Apple Silicon или Intel либо Windows 11 x64;
 - Node.js 18+ и npm;
 - Exchange ActiveSync 14.1 с Basic Auth поверх TLS;
 - доступ к необходимой корпоративной сети/VPN и доверенному CA.
 
-Windows и Linux в `0.3.0` не поддерживаются.
+Windows ARM64 и Linux не поддерживаются. Windows `.exe` в `0.4.0` выпускается
+без Authenticode-подписи.
 
 ## Установка
 
@@ -22,7 +23,7 @@ eas-mail-mcp --version
 eas-mail-mcp native-path
 ```
 
-Npm выбирает нативный пакет под архитектуру Mac и не запускает `install` или
+Npm выбирает нативный пакет под ОС и архитектуру и не запускает `install` или
 `postinstall` scripts. Node.js нужен для установки и CLI-launcher, но MCP-клиент
 подключается напрямую к Rust-бинарнику, поэтому Node.js не остаётся в рабочем
 процессе.
@@ -38,7 +39,7 @@ eas-mail-mcp setup
 1. Импортирует готовый endpoint-профиль или создаёт его вручную.
 2. Запрашивает email, логин в формате профиля и скрытый пароль.
 3. Проверяет TLS, авторизацию, EAS 14.1, Provision policy и FolderSync.
-4. Сохраняет аккаунт и Keychain-данные только после успешной проверки.
+4. Сохраняет аккаунт и данные системного хранилища секретов только после успешной проверки.
 5. Отдельно предлагает включить write-доступ, который по умолчанию выключен.
 6. Позволяет добавить следующие аккаунты.
 7. Настраивает найденные Codex, Claude Code и OpenCode с backup/rollback.
@@ -165,6 +166,14 @@ eas-mail-mcp --human calendar agenda \
   --from 2026-08-24 --to 2026-08-30 --time-zone Europe/Belgrade
 ```
 
+Эквивалентный пример для Windows PowerShell:
+
+```powershell
+eas-mail-mcp --human mail list --limit 10
+eas-mail-mcp --human calendar agenda `
+  --from 2026-08-24 --to 2026-08-30 --time-zone Europe/Belgrade
+```
+
 Полный список команд, JSON-режим, переносимые ссылки и подтверждение write:
 [CLI reference](cli.md).
 
@@ -175,14 +184,23 @@ eas-mail-mcp --human calendar agenda \
 ## Где хранятся данные
 
 ```text
-~/Library/Application Support/EAS Mail MCP/profiles.toml
-~/Library/Application Support/EAS Mail MCP/config.toml
+macOS config: ~/Library/Application Support/EAS Mail MCP
+macOS cache:  ~/Library/Caches/EAS Mail MCP
+Windows:      %LOCALAPPDATA%\EAS Mail MCP
 ```
 
 Пароли, Device IDs, policy state и HMAC key журнала идемпотентности хранятся в
-macOS Keychain. Почтовой или календарной базы нет. SQLite содержит только
+macOS Keychain или Windows Credential Manager. Почтовой или календарной базы нет. SQLite содержит только
 метаданные write-операций без тем, адресатов и текста. Вложения попадают во
 временный кэш только после отдельного скачивания.
+
+Ограничение Windows `0.4.0`: все аккаунты используют одну запись Credential
+Manager размером не более 2 560 байт в UTF-16. В лимит входят пароли и служебные
+данные всех аккаунтов, поэтому фиксированного допустимого числа аккаунтов нет.
+При переполнении появится `STORAGE_ERROR` с сообщением о размере; прежняя запись
+останется неизменной. Удалите неиспользуемые аккаунты через CLI перед повтором.
+Разблокировка хранилища не поможет; не сокращайте пароли ради обхода лимита.
+К macOS Keychain это ограничение не относится.
 
 ## Обновление и удаление
 
@@ -196,7 +214,7 @@ npm install -g eas-mail-mcp@latest
 npm uninstall -g eas-mail-mcp
 ```
 
-Npm uninstall намеренно сохраняет локальные профили, аккаунты и Keychain.
+Npm uninstall намеренно сохраняет локальные профили, аккаунты и системные секреты.
 Удалите их через CLI до удаления пакета, если настройки не должны оставаться.
 
 ## Частые ошибки

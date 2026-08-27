@@ -7,12 +7,13 @@ import { dirname, join } from "node:path";
 const packages = new Map([
   ["darwin-arm64", "eas-mail-mcp-darwin-arm64"],
   ["darwin-x64", "eas-mail-mcp-darwin-x64"],
+  ["win32-x64", "eas-mail-mcp-win32-x64"],
 ]);
 const platform = `${process.platform}-${process.arch}`;
 const packageName = packages.get(platform);
 
 if (!packageName) {
-  fail(`Unsupported platform: ${platform}. Supported: macOS arm64 and x64.`);
+  fail(`Unsupported platform: ${platform}. Supported: macOS arm64/x64 and Windows x64.`);
 }
 
 const require = createRequire(import.meta.url);
@@ -25,13 +26,15 @@ try {
   );
 }
 
-const binary = join(dirname(packageJson), "bin", "eas-mail-mcp");
+const binaryName = process.platform === "win32" ? "eas-mail-mcp.exe" : "eas-mail-mcp";
+const binary = join(dirname(packageJson), "bin", binaryName);
 const child = spawn(binary, process.argv.slice(2), {
   stdio: "inherit",
   windowsHide: true,
 });
 
-for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+const signals = process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
+for (const signal of signals) {
   process.on(signal, () => child.kill(signal));
 }
 

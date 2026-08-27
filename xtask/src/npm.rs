@@ -9,22 +9,41 @@ use anyhow::{Context as _, Result};
 use crate::command::{output, run, run_env};
 use crate::delivery::{
     BINARY, MAX_BINARY_BYTES, digest, make_executable, remap_flags, sign_macho,
-    verify_binary_strings, verify_macho,
+    verify_binary_strings, verify_macho, verify_pe_x64,
 };
 
 const DEPLOYMENT_TARGET: &str = "14.0";
-const PACKAGES: [(&str, &str); 2] = [
-    ("eas-mail-mcp-darwin-arm64", "aarch64-apple-darwin"),
-    ("eas-mail-mcp-darwin-x64", "x86_64-apple-darwin"),
+#[cfg(target_os = "macos")]
+const MACOS_PACKAGES: [NativePackage; 2] = [
+    NativePackage::new("eas-mail-mcp-darwin-arm64", "aarch64-apple-darwin", BINARY),
+    NativePackage::new("eas-mail-mcp-darwin-x64", "x86_64-apple-darwin", BINARY),
 ];
+#[cfg(windows)]
+const WINDOWS_PACKAGES: [NativePackage; 1] =
+    [NativePackage::new("eas-mail-mcp-win32-x64", "x86_64-pc-windows-msvc", "eas-mail-mcp.exe")];
+const PLATFORM_PACKAGE_NAMES: [&str; 3] =
+    ["eas-mail-mcp-darwin-arm64", "eas-mail-mcp-darwin-x64", "eas-mail-mcp-win32-x64"];
+
+#[derive(Debug, Clone, Copy)]
+struct NativePackage {
+    name: &'static str,
+    target: &'static str,
+    binary: &'static str,
+}
+
+impl NativePackage {
+    const fn new(name: &'static str, target: &'static str, binary: &'static str) -> Self {
+        Self { name, target, binary }
+    }
+}
 
 pub(crate) fn verify(root: &Path) -> Result<()> {
     manifest::verify(root)
 }
 
 pub(crate) fn pack(root: &Path) -> Result<()> {
-    anyhow::ensure!(cfg!(target_os = "macos"), "npm packaging requires macOS");
     verify(root)?;
+    let packages = host_packages()?;
     let version = manifest::workspace_version(root)?;
     let dist = root.join("dist/npm");
     let staging = dist.join("staging");
@@ -32,11 +51,11 @@ pub(crate) fn pack(root: &Path) -> Result<()> {
     fs::create_dir_all(&staging)?;
 
     let rustflags = remap_flags(root)?;
-    let mut archives = Vec::with_capacity(PACKAGES.len() + 1);
-    for (package, target) in PACKAGES {
-        build_target(root, target, &rustflags)?;
-        let package_root = stage_platform(root, &staging, package, target)?;
-        archives.push(pack_package(root, &package_root, &dist, package, &version)?);
+    let mut archives = Vec::with_capacity(packages.len() + 1);
+    for package in packages {
+        build_target(root, package.target, &rustflags)?;
+        let package_root = stage_platform(root, &staging, *package)?;
+        archives.push(pack_package(root, &package_root, &dist, package.name, &version)?);
     }
 
     let root_package = stage_root(root, &staging)?;
@@ -48,12 +67,11 @@ pub(crate) fn pack(root: &Path) -> Result<()> {
 }
 
 pub(crate) fn install_candidate(root: &Path) -> Result<()> {
-    anyhow::ensure!(cfg!(target_os = "macos"), "npm candidate installation requires macOS");
     verify(root)?;
     let version = manifest::workspace_version(root)?;
     let dist = root.join("dist/npm");
-    let host_package = host_package();
-    let platform_archive = dist.join(format!("{host_package}-{version}.tgz"));
+    let host_package = host_package()?;
+    let platform_archive = dist.join(format!("{}-{version}.tgz", host_package.name));
     let root_archive = dist.join(format!("{BINARY}-{version}.tgz"));
     anyhow::ensure!(platform_archive.is_file(), "run `cargo xtask npm pack` first");
     anyhow::ensure!(root_archive.is_file(), "run `cargo xtask npm pack` first");
@@ -61,11 +79,11 @@ pub(crate) fn install_candidate(root: &Path) -> Result<()> {
     run(root, "npm", global_install_arguments(&root_archive, &platform_archive))?;
     let prefix_output = output(root, "npm", ["prefix", "--global"])?;
     let prefix = PathBuf::from(prefix_output.trim());
-    let launcher = prefix.join("bin/eas-mail-mcp");
+    let launcher = npm_launcher(&prefix);
     run(root, launcher.to_string_lossy().as_ref(), ["--version", "--verbose"])?;
     let native_path = output(root, launcher.to_string_lossy().as_ref(), ["native-path"])?;
     anyhow::ensure!(
-        native_path.contains(host_package),
+        native_path.contains(host_package.name),
         "candidate selected the wrong native package"
     );
     Ok(())
@@ -79,28 +97,41 @@ fn prepare_directory(path: &Path) -> Result<()> {
 }
 
 fn build_target(root: &Path, target: &str, rustflags: &str) -> Result<()> {
+    if target.ends_with("apple-darwin") {
+        return run_env(
+            root,
+            "cargo",
+            ["build", "--release", "--locked", "--target", target, "--package", BINARY],
+            &[("MACOSX_DEPLOYMENT_TARGET", DEPLOYMENT_TARGET), ("RUSTFLAGS", rustflags)],
+        );
+    }
+    let rustflags = format!("{rustflags} -C target-feature=+crt-static");
     run_env(
         root,
         "cargo",
         ["build", "--release", "--locked", "--target", target, "--package", BINARY],
-        &[("MACOSX_DEPLOYMENT_TARGET", DEPLOYMENT_TARGET), ("RUSTFLAGS", rustflags)],
+        &[("RUSTFLAGS", rustflags.as_str())],
     )
 }
 
-fn stage_platform(root: &Path, staging: &Path, package: &str, target: &str) -> Result<PathBuf> {
-    let destination = staging.join(package);
-    copy_package_files(root, &destination, package)?;
+fn stage_platform(root: &Path, staging: &Path, package: NativePackage) -> Result<PathBuf> {
+    let destination = staging.join(package.name);
+    copy_package_files(root, &destination, package.name)?;
     let binary_dir = destination.join("bin");
     fs::create_dir_all(&binary_dir)?;
-    let source = root.join("target").join(target).join("release").join(BINARY);
-    let binary = binary_dir.join(BINARY);
+    let source = root.join("target").join(package.target).join("release").join(package.binary);
+    let binary = binary_dir.join(package.binary);
     fs::copy(&source, &binary).with_context(|| format!("cannot copy {}", source.display()))?;
     make_executable(&binary)?;
-    sign_macho(&destination, &binary)?;
-    verify_macho(&destination, &binary, target)?;
+    if package.target.ends_with("apple-darwin") {
+        sign_macho(&destination, &binary)?;
+        verify_macho(&destination, &binary, package.target)?;
+    } else {
+        verify_pe_x64(&binary)?;
+    }
     verify_binary_strings(root, &binary)?;
     let size = fs::metadata(&binary)?.len();
-    anyhow::ensure!(size <= MAX_BINARY_BYTES, "{target} binary exceeds the 20 MiB limit");
+    anyhow::ensure!(size <= MAX_BINARY_BYTES, "{} binary exceeds the 20 MiB limit", package.target);
     Ok(destination)
 }
 
@@ -197,44 +228,106 @@ fn smoke_install(
     root_archive: &Path,
     archives: &[PathBuf],
 ) -> Result<()> {
-    let host_package = host_package();
+    let host_package = host_package()?;
     let platform_archive = archives
         .iter()
         .find(|path| {
-            path.file_name().is_some_and(|name| name.to_string_lossy().starts_with(host_package))
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(host_package.name))
         })
         .ok_or_else(|| anyhow::anyhow!("host platform archive is missing"))?;
     let prefix = dist.join("smoke-prefix");
     fs::create_dir_all(&prefix)?;
     let arguments = install_arguments(&prefix, root_archive, platform_archive);
     run(root, "npm", arguments)?;
-    let launcher = prefix.join("bin/eas-mail-mcp");
-    let modules = prefix.join("lib/node_modules");
-    let other_package = if host_package.ends_with("arm64") {
-        "eas-mail-mcp-darwin-x64"
-    } else {
-        "eas-mail-mcp-darwin-arm64"
-    };
-    anyhow::ensure!(
-        !modules.join(other_package).exists(),
-        "npm installed an incompatible native package"
-    );
+    let launcher = npm_launcher(&prefix);
+    let modules = npm_modules(&prefix);
+    for package in PLATFORM_PACKAGE_NAMES {
+        if package != host_package.name {
+            anyhow::ensure!(
+                !modules.join(package).exists(),
+                "npm installed incompatible native package {package}"
+            );
+        }
+    }
     run(root, launcher.to_string_lossy().as_ref(), ["--version"])?;
     let native_path = output(root, launcher.to_string_lossy().as_ref(), ["native-path"])?;
     anyhow::ensure!(!native_path.trim().ends_with(".js"), "native-path returned the JS launcher");
     anyhow::ensure!(
-        native_path.contains(host_package),
-        "native-path did not select {host_package}"
+        native_path.contains(host_package.name),
+        "native-path did not select {}",
+        host_package.name
     );
     Ok(())
 }
 
-fn host_package() -> &'static str {
-    if cfg!(target_arch = "aarch64") {
-        "eas-mail-mcp-darwin-arm64"
-    } else {
-        "eas-mail-mcp-darwin-x64"
-    }
+fn host_package() -> Result<NativePackage> {
+    let target = host_target()?;
+    host_packages()?
+        .iter()
+        .copied()
+        .find(|package| package.target == target)
+        .ok_or_else(|| anyhow::anyhow!("npm packaging does not support host target {target}"))
+}
+
+#[cfg(target_os = "macos")]
+const fn host_packages() -> Result<&'static [NativePackage]> {
+    Ok(&MACOS_PACKAGES)
+}
+
+#[cfg(windows)]
+fn host_packages() -> Result<&'static [NativePackage]> {
+    anyhow::ensure!(cfg!(target_arch = "x86_64"), "npm packaging supports Windows x64 only");
+    Ok(&WINDOWS_PACKAGES)
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn host_packages() -> Result<&'static [NativePackage]> {
+    anyhow::bail!("npm packaging requires macOS or Windows x64")
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const fn host_target() -> Result<&'static str> {
+    Ok("aarch64-apple-darwin")
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+const fn host_target() -> Result<&'static str> {
+    Ok("x86_64-apple-darwin")
+}
+
+#[cfg(all(windows, target_arch = "x86_64"))]
+const fn host_target() -> Result<&'static str> {
+    Ok("x86_64-pc-windows-msvc")
+}
+
+#[cfg(not(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "macos", target_arch = "x86_64"),
+    all(windows, target_arch = "x86_64")
+)))]
+fn host_target() -> Result<&'static str> {
+    anyhow::bail!("npm packaging does not support this host architecture")
+}
+
+#[cfg(windows)]
+fn npm_launcher(prefix: &Path) -> PathBuf {
+    prefix.join("eas-mail-mcp.cmd")
+}
+
+#[cfg(not(windows))]
+fn npm_launcher(prefix: &Path) -> PathBuf {
+    prefix.join("bin/eas-mail-mcp")
+}
+
+#[cfg(windows)]
+fn npm_modules(prefix: &Path) -> PathBuf {
+    prefix.join("node_modules")
+}
+
+#[cfg(not(windows))]
+fn npm_modules(prefix: &Path) -> PathBuf {
+    prefix.join("lib/node_modules")
 }
 
 fn global_install_arguments(root: &Path, platform: &Path) -> Vec<OsString> {

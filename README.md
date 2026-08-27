@@ -9,9 +9,13 @@ designed for managed or on-premises Exchange environments where EAS is available
 and a hosted connector, Microsoft Graph, or a local mailbox database is
 undesirable.
 
+Platforms: **macOS 14+** (Apple Silicon and Intel) and **Windows 11 x64**.
+Windows support is new in `0.4.0`; see
+[compatibility and validation limits](#compatibility-and-limits).
+
 The public npm packages contain no operator server, domain, realm, certificate,
 account, or password. Endpoint profiles are created or imported locally, and
-credentials stay in macOS Keychain.
+credentials stay in the operating system credential store.
 
 ```bash
 npm install -g eas-mail-mcp
@@ -53,7 +57,7 @@ advantages are specific to local EAS deployments:
 
 | Compared with | What this project provides | Trade-off |
 | --- | --- | --- |
-| Hosted mail MCP or relay | Direct local connection from the user's Mac to Exchange; no additional service receives mailbox data | The AI client still receives requested content and must be approved for corporate data |
+| Hosted mail MCP or relay | Direct local connection from the user's computer to Exchange; no additional service receives mailbox data | The AI client still receives requested content and must be approved for corporate data |
 | IMAP/SMTP integration | Mail, directory resolution, free/busy, calendar details, and meeting lifecycle through one Exchange protocol | Requires an EAS 14.1 endpoint with Basic Auth enabled |
 | Microsoft Graph integration | No Entra app registration, OAuth flow, or cloud tenant dependency | Graph is the better fit when modern OAuth and Graph are available or required |
 | Local mailbox index | No persistent mailbox database, lower data-at-rest exposure, and fresh server-side search | No offline search; cold requests depend on Exchange and network latency |
@@ -79,7 +83,7 @@ flowchart LR
     User --> Shell["Terminal / script"]
     Shell -->|"one CLI command"| MCP
     MCP -->|"EAS 14.1 over HTTPS"| Exchange["Exchange server"]
-    MCP --> Keychain["macOS Keychain"]
+    MCP --> Credentials["Keychain / Windows Credential Manager"]
     MCP --> Config["Local profiles and account config"]
     MCP --> Journal["Content-free write journal"]
 ```
@@ -104,7 +108,7 @@ For the protocol and module-level explanation, see
 
 Requirements:
 
-- macOS 14 or later on Apple Silicon or Intel;
+- macOS 14 or later on Apple Silicon or Intel, or Windows 11 x64;
 - Node.js 18 or later for npm installation and the administrative launcher;
 - an Exchange ActiveSync 14.1 endpoint using Basic Auth over TLS;
 - any required corporate network, VPN, and trusted CA configuration.
@@ -121,6 +125,10 @@ The wizard imports or creates an endpoint profile, verifies each account before
 saving its credentials, lets the user add more accounts, and configures detected
 Codex, Claude Code, or OpenCode installations with backups. Run `setup` again to
 repair accounts, update passwords, change write access, or manage clients.
+
+On Windows, non-secret configuration, the idempotency journal, and attachment
+cache live under `%LOCALAPPDATA%\EAS Mail MCP`; secrets stay in Windows
+Credential Manager. The same install and setup commands work in PowerShell.
 
 See [Getting started](docs/getting-started.md) for the complete profile format,
 multi-account workflow, manual MCP configuration, storage locations, updates,
@@ -178,14 +186,14 @@ loaded only through dedicated tools. Mail and calendar content is marked as
 - HTTPS, hostname validation, certificate validation, response-origin checks,
   and redirect rejection are mandatory.
 - Passwords, Device IDs, policy state, and the write-journal HMAC key are stored
-  in macOS Keychain.
+  in macOS Keychain or Windows Credential Manager.
 - Profiles contain endpoint metadata and optional public CA certificates, but
   never credentials.
 - Mail and calendar writes are disabled independently for each account by
   default. MCP callers provide idempotency UUIDs; the CLI generates one unless
   the caller supplies `--idempotency-key`.
 - Ambiguous network outcomes are not blindly retried.
-- Processes running as the same macOS user are inside the trusted local
+- Processes running as the same operating-system user are inside the trusted local
   boundary; MCP client names and client-side approval prompts are not
   authentication mechanisms.
 
@@ -194,7 +202,20 @@ or an externally hosted AI model.
 
 ## Compatibility and limits
 
-`0.3.0` supports macOS arm64 and x86_64. Windows and Linux are not supported.
+`0.4.0` supports macOS arm64 and x86_64 and Windows 11 x64. Windows ARM64 and
+Linux are not supported. The Windows executable is distributed without an
+Authenticode signature. Each release contains the root npm tarball plus three
+native tarballs for the supported platform/architecture pairs.
+
+Windows validation includes local CLI/MCP tests and an offline npm package
+installation under Wine. Native Windows validation is still pending for the
+generated npm `.cmd` launcher, Credential Manager, symlink/reparse-point
+protections, and live Exchange connectivity. Wine testing is not a substitute
+for that end-to-end check.
+
+Windows `0.4.0` stores all accounts in one Credential Manager entry, limited to
+2,560 bytes of UTF-16 data. The number of accounts that fit depends on their
+credentials and device/policy state; see [local data](docs/getting-started.md#local-data).
 
 The runtime intentionally fixes HTTPS, EAS 14.1,
 `/Microsoft-Server-ActiveSync`, and `DeviceType=EasMailMCP`. It does not support
@@ -226,6 +247,8 @@ The workspace uses the Rust toolchain pinned in `rust-toolchain.toml`.
 cargo xtask test
 cargo xtask check
 ```
+
+On Windows PowerShell, use `./scripts/bootstrap-tools.ps1` for the first command.
 
 `cargo xtask check` runs formatting, Clippy, rustdoc, file-size limits, golden
 fixtures, tests, coverage, dependency and license checks, secret scanning, and

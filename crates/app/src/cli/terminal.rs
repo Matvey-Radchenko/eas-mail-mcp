@@ -106,6 +106,11 @@ pub(super) fn confirm_controlling_tty(label: &str) -> Result<bool> {
     if std::io::stdin().is_terminal() {
         return StdioTerminal::detect().confirm(label, false);
     }
+    confirm_platform_terminal(label)
+}
+
+#[cfg(unix)]
+fn confirm_platform_terminal(label: &str) -> Result<bool> {
     let mut terminal = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -113,6 +118,20 @@ pub(super) fn confirm_controlling_tty(label: &str) -> Result<bool> {
         .map_err(|_| interaction_error())?;
     let reader = terminal.try_clone().map_err(|_| interaction_error())?;
     confirm_io(std::io::BufReader::new(reader), &mut terminal, label)
+}
+
+#[cfg(windows)]
+fn confirm_platform_terminal(label: &str) -> Result<bool> {
+    let input =
+        std::fs::OpenOptions::new().read(true).open("CONIN$").map_err(|_| interaction_error())?;
+    let mut output =
+        std::fs::OpenOptions::new().write(true).open("CONOUT$").map_err(|_| interaction_error())?;
+    confirm_io(std::io::BufReader::new(input), &mut output, label)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn confirm_platform_terminal(_: &str) -> Result<bool> {
+    Err(interaction_error())
 }
 
 fn confirm_io(

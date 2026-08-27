@@ -33,7 +33,9 @@ pub(crate) fn check(root: &Path) -> Result<()> {
         &[("RUSTDOCFLAGS", "-D warnings")],
     )?;
     files::check(root)?;
-    run(root, "sh", ["-n", "scripts/install.sh", "scripts/uninstall.sh"])?;
+    if cfg!(unix) {
+        run(root, "sh", ["-n", "scripts/install.sh", "scripts/uninstall.sh"])?;
+    }
     goldens::run(root, false)?;
     test(root)?;
     coverage(root)?;

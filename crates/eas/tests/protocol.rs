@@ -10,10 +10,13 @@ use eas_mail_protocol::{ChangeData, ChangeKind, CollectionKind, Patch};
 
 #[test]
 fn initial_provision_matches_reference_client_bytes() -> eas_mail_protocol::Result<()> {
+    let expected_base64 = if cfg!(windows) {
+        "AwFqAAAORQASVkhXA0VBUyBNYWlsIE1DUAABWQNFQVMgTWFpbCBNQ1AAAVoDV2luZG93cwABWwNlbgABAQEADkZHSANNUy1FQVMtUHJvdmlzaW9uaW5nLVdCWE1MAAEBAQE="
+    } else {
+        "AwFqAAAORQASVkhXA0VBUyBNYWlsIE1DUAABWQNFQVMgTWFpbCBNQ1AAAVoDbWFjT1MAAVsDZW4AAQEBAA5GR0gDTVMtRUFTLVByb3Zpc2lvbmluZy1XQlhNTAABAQEB"
+    };
     let expected = base64::engine::general_purpose::STANDARD
-        .decode(
-            "AwFqAAAORQASVkhXA0VBUyBNYWlsIE1DUAABWQNFQVMgTWFpbCBNQ1AAAVoDbWFjT1MAAVsDZW4AAQEBAA5GR0gDTVMtRUFTLVByb3Zpc2lvbmluZy1XQlhNTAABAQEB",
-        )
+        .decode(expected_base64)
         .map_err(|error| eas_mail_protocol::EasError::Protocol(error.to_string()))?;
     assert_eq!(build_initial_provision()?, expected);
     Ok(())

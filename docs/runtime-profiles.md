@@ -6,10 +6,11 @@ not contain operator endpoints.
 
 ## Location
 
-On macOS, the active registry is stored at:
+The active registry is stored at:
 
 ```text
-~/Library/Application Support/EAS Mail MCP/profiles.toml
+macOS:   ~/Library/Application Support/EAS Mail MCP/profiles.toml
+Windows: %LOCALAPPDATA%\EAS Mail MCP\profiles.toml
 ```
 
 Use the CLI instead of editing the active file directly:

@@ -2,6 +2,15 @@ use eas_mail_protocol::protocol::evaluate_policy;
 
 use super::*;
 
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn native_credential_store_is_persistent() {
+    assert!(matches!(
+        keyring::default::default_credential_builder().persistence(),
+        keyring::credential::CredentialPersistence::UntilDelete
+    ));
+}
+
 #[test]
 fn version_one_bundle_and_device_id_validate() -> anyhow::Result<()> {
     let mut bundle = SecretBundle::new();
@@ -78,6 +87,30 @@ fn failed_memory_update_does_not_commit_partial_state() -> anyhow::Result<()> {
     assert!(result.is_err());
     assert!(store.load()?.accounts.is_empty());
     Ok(())
+}
+
+#[test]
+fn credential_capacity_error_is_actionable_and_redacted() -> anyhow::Result<()> {
+    let error = keychain_error(keyring::Error::TooLong("private fixture attribute".into(), 2560));
+    assert_eq!(error.envelope.code, ErrorCode::StorageError);
+    assert!(!error.envelope.retryable);
+    assert!(error.envelope.message.contains("per-entry size limit"));
+    assert!(error.envelope.remediation.as_deref().is_some_and(|value| {
+        value.contains("all accounts in one credential entry")
+            && value.contains("Remove unused accounts")
+    }));
+    assert!(!serde_json::to_string(&error.envelope)?.contains("private fixture attribute"));
+    Ok(())
+}
+
+#[test]
+fn other_credential_errors_keep_the_unlock_remediation() {
+    let error = keychain_error(keyring::Error::NoEntry);
+    assert_eq!(error.envelope.code, ErrorCode::AuthRequired);
+    assert_eq!(
+        error.envelope.remediation.as_deref(),
+        Some("Unlock the user credential store and retry")
+    );
 }
 
 fn secret(device_id: String) -> AccountSecret {

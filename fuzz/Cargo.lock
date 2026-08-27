@@ -241,7 +241,7 @@ dependencies = [
 
 [[package]]
 name = "eas-mail-profile"
-version = "0.2.0-beta.1"
+version = "0.4.0"
 dependencies = [
  "base64",
  "serde",
@@ -252,7 +252,7 @@ dependencies = [
 
 [[package]]
 name = "eas-mail-protocol"
-version = "0.2.0-beta.1"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "base64",

@@ -1,6 +1,6 @@
 {
   "name": "eas-mail-mcp-darwin-x64",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Native macOS x64 binary for eas-mail-mcp",
   "license": "MIT OR Apache-2.0",
   "author": "Matvey Radchenko",

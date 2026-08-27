@@ -72,6 +72,13 @@ fn custom_paths_create_only_private_runtime_directories() -> anyhow::Result<()> 
     assert!(paths.attachments.is_dir());
     let standard = Paths::standard()?;
     assert!(standard.config.ends_with("EAS Mail MCP/config.toml"));
+    #[cfg(windows)]
+    assert_eq!(
+        standard.support,
+        dirs::data_local_dir()
+            .ok_or_else(|| anyhow::anyhow!("local application data directory is missing"))?
+            .join("EAS Mail MCP")
+    );
     Ok(())
 }
 
@@ -89,6 +96,7 @@ fn code(error: AppError) -> ErrorCode {
     error.envelope.code
 }
 
+#[cfg(unix)]
 fn path_error() -> std::io::Error {
     std::io::Error::other("path has no parent")
 }

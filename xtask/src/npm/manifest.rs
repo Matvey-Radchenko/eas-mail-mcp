@@ -6,8 +6,11 @@ use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
 const ROOT_PACKAGE: &str = "eas-mail-mcp";
-const PLATFORM_PACKAGES: [(&str, &str); 2] =
-    [("eas-mail-mcp-darwin-arm64", "arm64"), ("eas-mail-mcp-darwin-x64", "x64")];
+const PLATFORM_PACKAGES: [(&str, &str, &str, &str); 3] = [
+    ("eas-mail-mcp-darwin-arm64", "darwin", "arm64", "bin/eas-mail-mcp"),
+    ("eas-mail-mcp-darwin-x64", "darwin", "x64", "bin/eas-mail-mcp"),
+    ("eas-mail-mcp-win32-x64", "win32", "x64", "bin/eas-mail-mcp.exe"),
+];
 const LICENSE_FILES: [&str; 2] = ["LICENSE-MIT", "LICENSE-APACHE"];
 
 #[derive(Debug, Deserialize)]
@@ -34,7 +37,10 @@ pub(super) fn verify(root: &Path) -> Result<()> {
     let root_package = read_package(root, ROOT_PACKAGE)?;
     anyhow::ensure!(root_package.name == ROOT_PACKAGE, "root npm package has the wrong name");
     verify_common(&root_package, &version)?;
-    anyhow::ensure!(root_package.os == ["darwin"], "root npm package must be macOS-only");
+    anyhow::ensure!(
+        root_package.os == ["darwin", "win32"],
+        "root npm package has wrong operating systems"
+    );
     anyhow::ensure!(root_package.cpu == ["arm64", "x64"], "root npm package has wrong CPUs");
     anyhow::ensure!(
         root_package.bin.get(ROOT_PACKAGE).is_some_and(|path| path == "bin/eas-mail-mcp.js"),
@@ -42,13 +48,13 @@ pub(super) fn verify(root: &Path) -> Result<()> {
     );
     verify_files(&root_package, "bin/eas-mail-mcp.js")?;
 
-    for (name, cpu) in PLATFORM_PACKAGES {
+    for (name, operating_system, cpu, executable) in PLATFORM_PACKAGES {
         let package = read_package(root, name)?;
         anyhow::ensure!(package.name == name, "{name} manifest has the wrong package name");
         verify_common(&package, &version)?;
-        anyhow::ensure!(package.os == ["darwin"], "{name} must be macOS-only");
+        anyhow::ensure!(package.os == [operating_system], "{name} has the wrong OS selector");
         anyhow::ensure!(package.cpu == [cpu], "{name} has the wrong CPU selector");
-        verify_files(&package, "bin/eas-mail-mcp")?;
+        verify_files(&package, executable)?;
         anyhow::ensure!(
             root_package.optional_dependencies.get(name).is_some_and(|value| value == &version),
             "root package must pin {name} to {version}"
@@ -99,10 +105,10 @@ fn verify_launcher(root: &Path) -> Result<()> {
     let path = root.join("npm/eas-mail-mcp/bin/eas-mail-mcp.js");
     let launcher = fs::read_to_string(&path)?;
     anyhow::ensure!(
-        launcher.starts_with("#!/usr/bin/env node\n"),
+        launcher.lines().next() == Some("#!/usr/bin/env node"),
         "npm launcher needs a Node shebang"
     );
-    for (name, _) in PLATFORM_PACKAGES {
+    for (name, _, _, _) in PLATFORM_PACKAGES {
         anyhow::ensure!(launcher.contains(name), "npm launcher does not select {name}");
     }
     anyhow::ensure!(!launcher.contains("postinstall"), "npm launcher contains lifecycle logic");

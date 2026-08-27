@@ -5,7 +5,7 @@
 
 ## Context
 
-The server handles sensitive mail and calendar data on a user's Mac. Runtime
+The server handles sensitive mail and calendar data on a user's computer. Runtime
 endpoint configuration, plaintext secret files, TLS bypasses, or an
 unauthenticated shared daemon would expand the required trust boundary.
 
@@ -13,8 +13,9 @@ unauthenticated shared daemon would expand the required trust boundary.
 
 Run one direct stdio process per MCP client. Compile a reviewed endpoint
 registry into the binary, require TLS, disable redirects, and validate response
-origin. Store credentials and EAS device state in Keychain. Keep mailbox data in
-RAM and use SQLite only for content-free mutation idempotency.
+origin. Store credentials and EAS device state in the platform-native credential
+store (macOS Keychain or Windows Credential Manager). Keep mailbox data in RAM
+and use SQLite only for content-free mutation idempotency.
 
 Use the honest public identity `EasMailMCP`. Device ID length is an explicit
 validated profile field because EAS front doors can impose different limits.

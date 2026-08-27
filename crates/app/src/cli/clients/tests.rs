@@ -4,7 +4,6 @@
 )]
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -17,9 +16,24 @@ use crate::cli::terminal::testing::ScriptedTerminal;
 #[test]
 fn executable_version_is_best_effort_diagnostics() -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
-    let success = script(directory.path(), "success", "echo 'tool 0.148.0-alpha.9'\nexit 0")?;
-    let failure = script(directory.path(), "failure", "echo 'broken' >&2\nexit 7")?;
+    let success = script(directory.path(), "success", success_script())?;
+    let failure = script(directory.path(), "failure", failure_script())?;
     assert_eq!(detect_version(path_text(&success)?).as_deref(), Some("tool 0.148.0-alpha.9"));
+    #[cfg(windows)]
+    {
+        assert_eq!(
+            detect_version(path_text(&success.with_extension(""))?).as_deref(),
+            Some("tool 0.148.0-alpha.9")
+        );
+        let batch = success.with_extension("bat");
+        fs::copy(&success, &batch)?;
+        assert_eq!(detect_version(path_text(&batch)?).as_deref(), Some("tool 0.148.0-alpha.9"));
+        assert!(
+            process::resolve_executable("where")
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+        );
+    }
     assert!(detect_version(path_text(&failure)?).is_none());
     assert!(detect_version("/missing/client").is_none());
     assert!(command(path_text(&success)?, &["ignored"], false)?);
@@ -29,10 +43,32 @@ fn executable_version_is_best_effort_diagnostics() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
+#[test]
+fn windows_batch_client_runs_from_a_path_with_spaces() -> anyhow::Result<()> {
+    let temporary = tempfile::tempdir()?;
+    let directory = temporary.path().join("client commands");
+    fs::create_dir_all(&directory)?;
+    let success = script(&directory, "success", "echo [%~1][%~2]\r\nexit /b 0")?;
+
+    let output = output_with_timeout(
+        path_text(&success)?,
+        &["plain", "argument with spaces"],
+        Duration::from_secs(1),
+    )?;
+    assert!(
+        output.status.success(),
+        "batch command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "[plain][argument with spaces]");
+    Ok(())
+}
+
 #[test]
 fn black_box_client_command_has_a_hard_timeout() -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
-    let hanging = script(directory.path(), "hanging", "while :; do :; done")?;
+    let hanging = script(directory.path(), "hanging", hanging_script())?;
     let started = Instant::now();
     assert!(output_with_timeout(path_text(&hanging)?, &[], Duration::from_millis(50)).is_err());
     assert!(started.elapsed() < Duration::from_secs(2));
@@ -69,7 +105,7 @@ fn codex_cleanup_preserves_document_and_removes_generated_write_overrides() -> a
     assert!(tools["mail_send"].get("approval_mode").is_none());
     assert!(tools.get("mail_reply").is_none());
     assert_eq!(tools["custom"]["approval_mode"].as_str(), Some("prompt"));
-    assert_eq!(fs::metadata(&path)?.permissions().mode() & 0o777, 0o600);
+    assert_private_file(&path)?;
     fs::write(&path, "not = [toml")?;
     assert!(remove_codex_generated_approvals(&path).is_err());
     Ok(())
@@ -146,14 +182,7 @@ fn backups_are_private_and_restore_exact_or_absent_state() -> anyhow::Result<()>
     fs::write(&source, "after")?;
     restore(&source, Some(&saved))?;
     assert_eq!(fs::read_to_string(&source)?, "before");
-    assert_eq!(fs::metadata(&saved)?.permissions().mode() & 0o777, 0o600);
-    assert_eq!(
-        fs::metadata(saved.parent().ok_or_else(|| anyhow::anyhow!("backup parent missing"))?)?
-            .permissions()
-            .mode()
-            & 0o777,
-        0o700
-    );
+    assert_private_backup(&saved)?;
     restore(&source, None)?;
     assert!(!source.exists());
     assert_eq!(paths_to_strings([saved].into_iter()).len(), 1);
@@ -164,18 +193,9 @@ fn backups_are_private_and_restore_exact_or_absent_state() -> anyhow::Result<()>
 fn black_box_replace_server_does_not_launch_the_existing_server() -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
     let calls = directory.path().join("calls.log");
-    let executable = script(
-        directory.path(),
-        "client",
-        &format!(
-            "printf '%s\\n' \"$*\" >> '{}'\n\
-             if [ \"$1\" = mcp ] && [ \"$2\" = remove ]; then exit 9; fi\n\
-             exit 0",
-            calls.display()
-        ),
-    )?;
+    let executable = script(directory.path(), "client", &logging_script(&calls))?;
     replace_cli_server(path_text(&executable)?, &["mcp", "remove"], &["mcp", "add"])?;
-    assert_eq!(fs::read_to_string(calls)?, "mcp remove\nmcp add\n");
+    assert_eq!(fs::read_to_string(calls)?.lines().collect::<Vec<_>>(), ["mcp remove", "mcp add"]);
     assert_eq!(client_name(ClientKind::Codex), "codex");
     assert_eq!(client_name(ClientKind::Claude), "claude");
     assert_eq!(client_name(ClientKind::Opencode), "opencode");
@@ -251,10 +271,101 @@ fn missing_clients_get_a_later_setup_command() -> anyhow::Result<()> {
 }
 
 fn script(directory: &Path, name: &str, body: &str) -> anyhow::Result<PathBuf> {
+    #[cfg(unix)]
     let path = directory.join(name);
+    #[cfg(windows)]
+    let path = directory.join(format!("{name}.cmd"));
+    #[cfg(unix)]
     fs::write(&path, format!("#!/bin/sh\n{body}\n"))?;
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+    #[cfg(windows)]
+    fs::write(&path, format!("@echo off\r\n{body}\r\n"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+    }
     Ok(path)
+}
+
+#[cfg(unix)]
+const fn success_script() -> &'static str {
+    "echo 'tool 0.148.0-alpha.9'\nexit 0"
+}
+
+#[cfg(windows)]
+const fn success_script() -> &'static str {
+    "echo tool 0.148.0-alpha.9\r\nexit /b 0"
+}
+
+#[cfg(unix)]
+const fn failure_script() -> &'static str {
+    "echo 'broken' >&2\nexit 7"
+}
+
+#[cfg(windows)]
+const fn failure_script() -> &'static str {
+    "echo broken 1>&2\r\nexit /b 7"
+}
+
+#[cfg(unix)]
+const fn hanging_script() -> &'static str {
+    "while :; do :; done"
+}
+
+#[cfg(windows)]
+const fn hanging_script() -> &'static str {
+    ":loop\r\ngoto loop"
+}
+
+#[cfg(unix)]
+fn logging_script(calls: &Path) -> String {
+    format!(
+        "printf '%s\\n' \"$*\" >> '{}'\n\
+         if [ \"$1\" = mcp ] && [ \"$2\" = remove ]; then exit 9; fi\n\
+         exit 0",
+        calls.display()
+    )
+}
+
+#[cfg(windows)]
+fn logging_script(calls: &Path) -> String {
+    format!(
+        "echo %~1 %~2>>\"{}\"\r\n\
+         if \"%~1\"==\"mcp\" if \"%~2\"==\"remove\" exit /b 9\r\n\
+         exit /b 0",
+        calls.display()
+    )
+}
+
+#[cfg(unix)]
+fn assert_private_file(path: &Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    assert_eq!(fs::metadata(path)?.permissions().mode() & 0o777, 0o600);
+    Ok(())
+}
+
+#[cfg(not(unix))]
+const fn assert_private_file(_: &Path) -> anyhow::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn assert_private_backup(path: &Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+    assert_private_file(path)?;
+    assert_eq!(
+        fs::metadata(path.parent().ok_or_else(|| anyhow::anyhow!("backup parent missing"))?)?
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    Ok(())
+}
+
+#[cfg(not(unix))]
+const fn assert_private_backup(_: &Path) -> anyhow::Result<()> {
+    Ok(())
 }
 
 fn test_paths(root: &Path) -> Paths {
@@ -268,3 +379,6 @@ fn test_paths(root: &Path) -> Paths {
 }
 
 mod configuration;
+
+#[cfg(windows)]
+mod windows_process;

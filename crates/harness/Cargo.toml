@@ -66,8 +66,8 @@ required-features = ["soak"]
 test = false
 
 [dependencies]
-eas-mail-protocol = { version = "=0.3.0", path = "../eas" }
-eas-mail-mcp = { version = "=0.3.0", path = "../app" }
+eas-mail-protocol = { version = "=0.4.0", path = "../eas" }
+eas-mail-mcp = { version = "=0.4.0", path = "../app" }
 anyhow.workspace = true
 async-trait.workspace = true
 chrono.workspace = true

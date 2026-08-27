@@ -1,6 +1,6 @@
 {
   "name": "eas-mail-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Local Exchange ActiveSync MCP server and CLI for mail and calendar",
   "license": "MIT OR Apache-2.0",
   "author": "Matvey Radchenko",
@@ -23,14 +23,16 @@
     "node": ">=18"
   },
   "os": [
-    "darwin"
+    "darwin",
+    "win32"
   ],
   "cpu": [
     "arm64",
     "x64"
   ],
   "optionalDependencies": {
-    "eas-mail-mcp-darwin-arm64": "0.3.0",
-    "eas-mail-mcp-darwin-x64": "0.3.0"
+    "eas-mail-mcp-darwin-arm64": "0.4.0",
+    "eas-mail-mcp-darwin-x64": "0.4.0",
+    "eas-mail-mcp-win32-x64": "0.4.0"
   }
 }

@@ -42,8 +42,8 @@ jobs:
       - name: Run complete quality gate
         run: cargo xtask check
 
-  npm-pack:
-    runs-on: macos-15
+  windows-quality:
+    runs-on: windows-2022
     steps:
       - name: Checkout full history
         uses: actions/checkout@v6
@@ -51,10 +51,50 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Install pinned Rust toolchain
-        run: |
-          rustup toolchain install 1.95.0 --profile minimal \
-            --target aarch64-apple-darwin,x86_64-apple-darwin
-          rustup default 1.95.0
+        run: rustup toolchain install 1.95.0 --profile minimal --component clippy,rustfmt --target x86_64-pc-windows-msvc
+      - name: Select pinned Rust toolchain
+        run: rustup default 1.95.0
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+          fallback: none
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Build documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --all-features --no-deps --locked
+      - name: Verify npm manifests
+        run: cargo xtask npm verify
+      - name: Test Windows workspace
+        run: cargo xtask test
+
+  npm-pack:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-15
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - name: Windows
+            os: windows-2022
+            targets: x86_64-pc-windows-msvc
+    name: npm-pack (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.95.0 --profile minimal --target ${{ matrix.targets }}
+      - name: Select pinned Rust toolchain
+        run: rustup default 1.95.0
       - name: Install Node.js
         uses: actions/setup-node@v6
         with:

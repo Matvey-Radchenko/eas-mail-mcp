@@ -3,7 +3,7 @@
 ## Supported versions
 
 Security fixes are applied to the latest release. Public binaries are
-distributed through platform-restricted npm packages for macOS only.
+distributed through platform-restricted npm packages for macOS and Windows.
 
 ## Reporting a vulnerability
 
@@ -14,10 +14,11 @@ and the expected security boundary.
 
 ## Trust boundary
 
-The MCP server and every other process running as the same macOS user are in
-one trusted local boundary. Credentials are stored in that user's Keychain and
-runtime files use user-only permissions. The application does not attempt to
-protect data from another process with the same UID.
+The MCP server and every other process running as the same operating-system
+user are in one trusted local boundary. Credentials are stored in that user's
+macOS Keychain or Windows Credential Manager, and runtime files are restricted
+to that user where the platform supports Unix permission modes. The application
+does not attempt to protect data from another process in the same user session.
 
 MCP client name and version are self-reported diagnostic fields, not
 authentication or authorization. The only server-side mutation opt-in is the
@@ -40,7 +41,7 @@ registry. The transport fixes HTTPS, the
 disabled redirects, and response-origin validation. Profiles cannot contain
 ports, IP addresses, wildcard hosts, alternate paths, or TLS bypasses.
 
-Trust mode is either the macOS system store or one exclusive inline PEM with a
+Trust mode is either the operating system trust store or one exclusive inline PEM with a
 validated SHA-256 fingerprint. The fingerprint detects accidental mismatch
 inside the profile; it is not authentication against another same-user process
 that can replace both values. TLS verification cannot be disabled by
@@ -49,9 +50,13 @@ configuration or environment variables.
 ## Secrets and content
 
 Passwords, Device IDs, policy state, and the HMAC key are not `Debug` values and
-are stored in macOS Keychain. SQLite contains only idempotency metadata and
+are stored in macOS Keychain or Windows Credential Manager. SQLite contains only idempotency metadata and
 keyed payload hashes. Mail and calendar data stays in process memory, except for
 explicitly downloaded attachments in a private 24-hour cache.
+
+On Windows, these non-secret runtime files are rooted at
+`%LOCALAPPDATA%\EAS Mail MCP`. Reparse points are rejected for application-owned
+directories and files.
 
 Mailbox content is untrusted external input. HTML is converted to plain text,
 external images are not fetched, file names are sanitized, and MCP responses
