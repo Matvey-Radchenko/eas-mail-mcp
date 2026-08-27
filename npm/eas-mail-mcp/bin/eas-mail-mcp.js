@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 const packages = new Map([
   ["darwin-arm64", "eas-mail-mcp-darwin-arm64"],
   ["darwin-x64", "eas-mail-mcp-darwin-x64"],
-  ["win32-x64", "eas-mail-mcp-win32-x64"],
+  ["win32-x64", "eas-mail-mcp-windows-x64"],
 ]);
 const platform = `${process.platform}-${process.arch}`;
 const packageName = packages.get(platform);

@@ -207,11 +207,11 @@ Linux are not supported. The Windows executable is distributed without an
 Authenticode signature. Each release contains the root npm tarball plus three
 native tarballs for the supported platform/architecture pairs.
 
-Windows validation includes local CLI/MCP tests and an offline npm package
-installation under Wine. Native Windows validation is still pending for the
-generated npm `.cmd` launcher, Credential Manager, symlink/reparse-point
-protections, and live Exchange connectivity. Wine testing is not a substitute
-for that end-to-end check.
+Windows validation includes native Windows Server 2022 CI for the workspace
+tests, process cleanup, symlink rejection, and npm installation through the
+generated `.cmd` launcher. Local CLI/MCP and package tests also run under Wine.
+Manual Windows 11 validation of Credential Manager and live Exchange
+connectivity is still pending; CI does not replace that end-to-end check.
 
 Windows `0.4.0` stores all accounts in one Credential Manager entry, limited to
 2,560 bytes of UTF-16 data. The number of accounts that fit depends on their

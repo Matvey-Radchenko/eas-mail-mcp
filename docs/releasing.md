@@ -6,7 +6,7 @@ and maintainer 2FA. Configure each package's trusted publisher for
 `npm stage publish` only.
 
 Before the first `0.4.0` staged release, create
-`eas-mail-mcp-win32-x64` once in npm and configure its trusted publisher for
+`eas-mail-mcp-windows-x64` once in npm and configure its trusted publisher for
 this repository and the `Stage npm release` workflow. Apply the same access,
 2FA, and provenance policy as the existing native packages.
 
@@ -30,7 +30,7 @@ portable references across CLI processes, and permitted self-writes. Restart
 configured clients after changing their MCP configuration.
 
 Packaging is host-aware: macOS builds the two Darwin native packages and
-Windows 11 x64 builds `eas-mail-mcp-win32-x64`. Run the local acceptance loop on
+Windows 11 x64 builds `eas-mail-mcp-windows-x64`. Run the local acceptance loop on
 both operating systems. On Windows, the packaged PE x64 executable uses bundled
 SQLite and the static MSVC CRT; it is intentionally not Authenticode-signed in
 `0.4.0`.
@@ -53,7 +53,7 @@ List and download each staged package:
 npm stage list eas-mail-mcp
 npm stage list eas-mail-mcp-darwin-arm64
 npm stage list eas-mail-mcp-darwin-x64
-npm stage list eas-mail-mcp-win32-x64
+npm stage list eas-mail-mcp-windows-x64
 npm stage download <stage-id>
 ```
 
@@ -68,7 +68,7 @@ eas-mail-mcp setup
 On Windows PowerShell:
 
 ```powershell
-npm install -g .\eas-mail-mcp-win32-x64-0.4.0.tgz .\eas-mail-mcp-0.4.0.tgz
+npm install -g .\eas-mail-mcp-windows-x64-0.4.0.tgz .\eas-mail-mcp-0.4.0.tgz
 eas-mail-mcp --version --verbose
 eas-mail-mcp native-path
 eas-mail-mcp doctor
