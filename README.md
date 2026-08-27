@@ -208,10 +208,12 @@ Authenticode signature. Each release contains the root npm tarball plus three
 native tarballs for the supported platform/architecture pairs.
 
 Windows validation includes native Windows Server 2022 CI for the workspace
-tests, process cleanup, symlink rejection, and npm installation through the
-generated `.cmd` launcher. Local CLI/MCP and package tests also run under Wine.
-Manual Windows 11 validation of Credential Manager and live Exchange
-connectivity is still pending; CI does not replace that end-to-end check.
+tests, process cleanup, and npm installation through the generated `.cmd`
+launcher. Local CLI/MCP and package tests also run under Wine. Symlink tests
+can skip their checks when Windows does not grant link-creation privileges.
+Manual Windows 11 validation of Credential Manager, symlink/reparse-point
+protections, and live Exchange connectivity is still pending; CI does not
+replace that end-to-end check.
 
 Windows `0.4.0` stores all accounts in one Credential Manager entry, limited to
 2,560 bytes of UTF-16 data. The number of accounts that fit depends on their
