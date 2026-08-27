@@ -1,5 +1,5 @@
 {
-  "name": "eas-mail-mcp-win32-x64",
+  "name": "eas-mail-mcp-windows-x64",
   "version": "0.4.0",
   "description": "Native Windows x64 binary for eas-mail-mcp",
   "license": "MIT OR Apache-2.0",

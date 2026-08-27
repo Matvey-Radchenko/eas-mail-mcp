@@ -102,7 +102,7 @@ jobs:
         run: |
           npm stage publish dist/staged/npm-macos/eas-mail-mcp-darwin-arm64-*.tgz --access public --tag "$NPM_TAG"
           npm stage publish dist/staged/npm-macos/eas-mail-mcp-darwin-x64-*.tgz --access public --tag "$NPM_TAG"
-          npm stage publish dist/staged/npm-windows/eas-mail-mcp-win32-x64-*.tgz --access public --tag "$NPM_TAG"
+          npm stage publish dist/staged/npm-windows/eas-mail-mcp-windows-x64-*.tgz --access public --tag "$NPM_TAG"
       - name: Stage root package
         env:
           NPM_TAG: ${{ inputs.npm_tag }}

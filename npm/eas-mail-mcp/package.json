@@ -33,6 +33,6 @@
   "optionalDependencies": {
     "eas-mail-mcp-darwin-arm64": "0.4.0",
     "eas-mail-mcp-darwin-x64": "0.4.0",
-    "eas-mail-mcp-win32-x64": "0.4.0"
+    "eas-mail-mcp-windows-x64": "0.4.0"
   }
 }

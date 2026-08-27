@@ -20,9 +20,9 @@ const MACOS_PACKAGES: [NativePackage; 2] = [
 ];
 #[cfg(windows)]
 const WINDOWS_PACKAGES: [NativePackage; 1] =
-    [NativePackage::new("eas-mail-mcp-win32-x64", "x86_64-pc-windows-msvc", "eas-mail-mcp.exe")];
+    [NativePackage::new("eas-mail-mcp-windows-x64", "x86_64-pc-windows-msvc", "eas-mail-mcp.exe")];
 const PLATFORM_PACKAGE_NAMES: [&str; 3] =
-    ["eas-mail-mcp-darwin-arm64", "eas-mail-mcp-darwin-x64", "eas-mail-mcp-win32-x64"];
+    ["eas-mail-mcp-darwin-arm64", "eas-mail-mcp-darwin-x64", "eas-mail-mcp-windows-x64"];
 
 #[derive(Debug, Clone, Copy)]
 struct NativePackage {

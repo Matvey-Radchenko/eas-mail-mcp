@@ -9,7 +9,7 @@ const ROOT_PACKAGE: &str = "eas-mail-mcp";
 const PLATFORM_PACKAGES: [(&str, &str, &str, &str); 3] = [
     ("eas-mail-mcp-darwin-arm64", "darwin", "arm64", "bin/eas-mail-mcp"),
     ("eas-mail-mcp-darwin-x64", "darwin", "x64", "bin/eas-mail-mcp"),
-    ("eas-mail-mcp-win32-x64", "win32", "x64", "bin/eas-mail-mcp.exe"),
+    ("eas-mail-mcp-windows-x64", "win32", "x64", "bin/eas-mail-mcp.exe"),
 ];
 const LICENSE_FILES: [&str; 2] = ["LICENSE-MIT", "LICENSE-APACHE"];
 
