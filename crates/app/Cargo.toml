@@ -14,8 +14,8 @@ name = "eas-mail-mcp"
 path = "src/main.rs"
 
 [dependencies]
-eas-mail-protocol = { version = "=0.5.0", path = "../eas" }
-eas-mail-profile = { version = "=0.5.0", path = "../profile" }
+eas-mail-protocol = { version = "=0.5.1", path = "../eas" }
+eas-mail-profile = { version = "=0.5.1", path = "../profile" }
 anyhow.workspace = true
 async-trait.workspace = true
 base64.workspace = true

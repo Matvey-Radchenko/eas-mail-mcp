@@ -1,6 +1,6 @@
 {
   "name": "eas-mail-mcp-windows-x64",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Native Windows x64 binary for eas-mail-mcp",
   "license": "MIT OR Apache-2.0",
   "author": "Matvey Radchenko",
