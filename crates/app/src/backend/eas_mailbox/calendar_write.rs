@@ -1,31 +1,16 @@
 use eas_mail_protocol::{
-    CalendarApplication, ChangeData, ChangeKind, CollectionKind, Command, EasError,
-    MeetingResponseChoice,
+    CalendarApplication, CollectionKind, Command, EasError, MeetingResponseChoice,
 };
 
 use super::super::{BackendCalendarMutation, BackendEvent};
 use super::calendar_write_model::{
-    backend_event, calendar_filter, current_calendar_key, missing_during, patch_eq, require_status,
+    backend_event, calendar_filter, current_calendar_key, missing_during, require_status,
     required_string, source_ids, validate_mutation,
 };
 use super::session::{CollectionState, EasMailbox, SessionState};
 use crate::{AppError, ErrorCode, Result};
 
-const MAX_CALENDAR_SYNC_PAGES: usize = 100;
-
 impl EasMailbox {
-    pub(super) async fn mutable_event(&self, source: &BackendEvent) -> Result<BackendEvent> {
-        let mut event = self.fetch_event(source, 50_000).await?;
-        if event.collection_id.is_some() && event.server_id.is_some() {
-            return Ok(event);
-        }
-        let uid = required_string(&event.fields.uid, "Calendar item has no UID")?;
-        let resolved = self.find_event_by_uid(uid, event.collection_id.as_deref()).await?;
-        event.collection_id = resolved.collection_id;
-        event.server_id = resolved.server_id;
-        Ok(event)
-    }
-
     pub(super) async fn add_event(
         &self,
         client_id: &str,
@@ -60,7 +45,9 @@ impl EasMailbox {
                 .account(&self.account.account_id)
         })?;
         self.apply_mutation_key(&mut state, &collection_id, result.sync_key)?;
-        Ok(backend_event(self, collection_id, server_id, &item.application))
+        let event = backend_event(self, collection_id, server_id, &item.application);
+        drop(state);
+        self.mutable_event(&event).await
     }
 
     pub(super) async fn change_event(
@@ -84,7 +71,10 @@ impl EasMailbox {
             )
             .await?;
         self.apply_mutation_key(&mut state, collection_id, result.sync_key)?;
-        Ok(backend_event(self, collection_id.to_owned(), current_server_id, &item.application))
+        let event =
+            backend_event(self, collection_id.to_owned(), current_server_id, &item.application);
+        self.remember_calendar_binding(&mut state, &event)?;
+        Ok(event)
     }
 
     pub(super) async fn delete_event(&self, source: &BackendEvent) -> Result<()> {
@@ -98,7 +88,9 @@ impl EasMailbox {
         let result = self
             .calendar_delete_with_recovery(&mut state, collection_id, server_id, &sync_key, uid)
             .await?;
-        self.apply_mutation_key(&mut state, collection_id, result.sync_key)
+        self.apply_mutation_key(&mut state, collection_id, result.sync_key)?;
+        state.calendar_bindings.remove(uid);
+        Ok(())
     }
 
     pub(super) async fn respond_event(
@@ -106,6 +98,11 @@ impl EasMailbox {
         source: &BackendEvent,
         response: MeetingResponseChoice,
     ) -> Result<Option<String>> {
+        {
+            let mut state = self.state.lock().await;
+            self.ensure_ready(&mut state).await?;
+            self.require_calendar_capability(&state, Command::MeetingResponse, "MeetingResponse")?;
+        }
         let source = self.mutation_source(source).await?;
         let (collection_id, server_id) = source_ids(&source)?;
         let mut state = self.state.lock().await;
@@ -188,69 +185,7 @@ impl EasMailbox {
         }
     }
 
-    async fn find_event_by_uid(
-        &self,
-        uid: &str,
-        preferred_collection: Option<&str>,
-    ) -> Result<BackendEvent> {
-        let mut folders = self.calendar_folder_ids().await?;
-        if let Some(preferred) = preferred_collection {
-            folders.retain(|(_, id)| id == preferred);
-        }
-        let mut state = self.state.lock().await;
-        self.ensure_ready(&mut state).await?;
-        for (_, collection_id) in folders {
-            if let Some(event) =
-                self.scan_calendar_collection(&mut state, &collection_id, uid).await?
-            {
-                return Ok(event);
-            }
-        }
-        Err(AppError::new(ErrorCode::NotFound, "Calendar item is outside the mutable sync window")
-            .account(&self.account.account_id))
-    }
-
-    async fn scan_calendar_collection(
-        &self,
-        state: &mut SessionState,
-        collection_id: &str,
-        uid: &str,
-    ) -> Result<Option<BackendEvent>> {
-        state
-            .collections
-            .insert(collection_id.to_owned(), CollectionState::new(CollectionKind::Calendar));
-        let mut sync_key = self.initialize_calendar(state, collection_id).await?;
-        for _ in 0..MAX_CALENDAR_SYNC_PAGES {
-            let page = self.read_calendar_page(state, collection_id, &sync_key).await?;
-            sync_key.clone_from(&page.sync_key);
-            self.set_calendar_key(state, collection_id, &sync_key)?;
-            for change in page.changes {
-                if matches!(change.kind, ChangeKind::Add | ChangeKind::Change)
-                    && let ChangeData::Calendar(fields) = change.data
-                    && patch_eq(&fields.uid, uid)
-                {
-                    return Ok(Some(BackendEvent {
-                        occurrence_start: None,
-                        account_id: self.account.account_id.clone(),
-                        long_id: String::new(),
-                        collection_id: Some(collection_id.to_owned()),
-                        server_id: Some(change.server_id),
-                        fields,
-                    }));
-                }
-            }
-            if !page.more_available {
-                return Ok(None);
-            }
-        }
-        Err(AppError::new(
-            ErrorCode::ProtocolError,
-            "Exchange exceeded Calendar fallback pagination limit",
-        )
-        .account(&self.account.account_id))
-    }
-
-    async fn initialize_calendar(
+    pub(super) async fn initialize_calendar(
         &self,
         state: &mut SessionState,
         collection_id: &str,
@@ -413,7 +348,8 @@ impl EasMailbox {
         result.map_err(self.scoped_error()).and_then(validate_mutation)
     }
 
-    fn reset_calendar(&self, state: &mut SessionState, collection_id: &str) {
+    pub(super) fn reset_calendar(&self, state: &mut SessionState, collection_id: &str) {
+        state.calendar_bindings.retain(|_, value| value.collection_id != collection_id);
         state
             .collections
             .insert(collection_id.to_owned(), CollectionState::new(CollectionKind::Calendar));
@@ -429,10 +365,11 @@ impl EasMailbox {
             AppError::new(ErrorCode::ProtocolError, "Calendar mutation returned no SyncKey")
                 .account(&self.account.account_id)
         })?;
+        state.calendar_bindings.retain(|_, value| value.collection_id != collection_id);
         self.set_calendar_key(state, collection_id, &sync_key)
     }
 
-    fn set_calendar_key(
+    pub(super) fn set_calendar_key(
         &self,
         state: &mut SessionState,
         collection_id: &str,
@@ -460,13 +397,6 @@ impl EasMailbox {
             )
             .account(&self.account.account_id))
         }
-    }
-
-    async fn mutation_source(&self, source: &BackendEvent) -> Result<BackendEvent> {
-        let ready = source.collection_id.as_ref().is_some_and(|value| !value.is_empty())
-            && source.server_id.as_ref().is_some_and(|value| !value.is_empty())
-            && matches!(&source.fields.uid, eas_mail_protocol::Patch::Value(value) if !value.is_empty());
-        if ready { Ok(source.clone()) } else { self.mutable_event(source).await }
     }
 
     pub(super) fn require_calendar_capability(

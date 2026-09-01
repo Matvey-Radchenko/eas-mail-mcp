@@ -73,10 +73,10 @@ fn build_calendar_mutation(
             "Calendar mutation requires collection and SyncKey".into(),
         ));
     }
-    let (name, identifier_name, identifier) = match command {
-        CalendarCommand::Add(value) => ("Add", "ClientId", value),
-        CalendarCommand::Change(value) => ("Change", "ServerId", value),
-        CalendarCommand::Delete(value) => ("Delete", "ServerId", value),
+    let (name, identifier_name, identifier, permanent_delete) = match command {
+        CalendarCommand::Add(value) => ("Add", "ClientId", value, false),
+        CalendarCommand::Change(value) => ("Change", "ServerId", value, false),
+        CalendarCommand::Delete(value) => ("Delete", "ServerId", value, true),
     };
     if identifier.is_empty() {
         return Err(EasError::InvalidConfiguration("Calendar mutation identifier is empty".into()));
@@ -86,6 +86,9 @@ fn build_calendar_mutation(
     let mut collection = element("AirSync", "Collection");
     push_text(&mut collection, "AirSync", "SyncKey", sync_key);
     push_text(&mut collection, "AirSync", "CollectionId", collection_id);
+    if permanent_delete {
+        push_text(&mut collection, "AirSync", "DeletesAsMoves", "0");
+    }
     push_text(&mut collection, "AirSync", "GetChanges", "0");
     let mut commands = element("AirSync", "Commands");
     let mut mutation = element("AirSync", name);

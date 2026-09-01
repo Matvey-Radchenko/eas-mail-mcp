@@ -344,12 +344,12 @@ where
     }
 }
 
-fn optional_number<T>(value: &Patch<T>) -> Option<T>
+fn optional_number<T>(value: &Patch<Option<T>>) -> Option<T>
 where
     T: Copy,
 {
     match value {
-        Patch::Value(value) => Some(*value),
+        Patch::Value(value) => *value,
         Patch::Missing => None,
     }
 }

@@ -45,7 +45,7 @@ fn application_fields(item: &CalendarApplication) -> CalendarFields {
         all_day: Patch::Value(item.all_day),
         location: Patch::Value(item.location.clone()),
         attendees: Patch::Value(item.attendees.clone()),
-        reminder_minutes: item.reminder_minutes.map_or(Patch::Missing, Patch::Value),
+        reminder_minutes: Patch::Value(item.reminder_minutes),
         meeting_status: Patch::Value(item.meeting_status),
         uid: Patch::Value(item.uid.clone()),
         dt_stamp: Patch::Value(Some(item.dt_stamp)),

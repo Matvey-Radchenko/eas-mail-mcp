@@ -238,7 +238,7 @@ pub(super) fn parse_calendar_fields_base(application: &Element) -> CalendarField
                     .collect(),
             )
         }),
-        reminder_minutes: number_patch(application, "Reminder"),
+        reminder_minutes: optional_number_patch(application, "Reminder"),
         recurrence: recurrence_patch(application),
         exceptions: exceptions_patch(application),
         meeting_status: number_patch(application, "MeetingStatus"),
@@ -291,6 +291,16 @@ where
 {
     parent.child("Calendar", name).map_or(Patch::Missing, |value| {
         Patch::Value(value.text_content().parse().unwrap_or_default())
+    })
+}
+
+fn optional_number_patch<T>(parent: &Element, name: &str) -> Patch<Option<T>>
+where
+    T: std::str::FromStr,
+{
+    parent.child("Calendar", name).map_or(Patch::Missing, |value| {
+        let text = value.text_content();
+        Patch::Value((!text.is_empty()).then(|| text.parse().ok()).flatten())
     })
 }
 

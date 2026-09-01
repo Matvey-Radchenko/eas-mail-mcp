@@ -54,6 +54,7 @@ fn calendar_delete_and_mutation_response_preserve_sync_state() -> anyhow::Result
     let delete = request
         .descendant("AirSync", "Delete")
         .ok_or_else(|| anyhow::anyhow!("calendar delete is missing"))?;
+    assert_eq!(text(&request, "AirSync", "DeletesAsMoves").as_deref(), Some("0"));
     assert_eq!(text(delete, "AirSync", "ServerId").as_deref(), Some("server-1"));
     assert!(delete.descendant("AirSync", "ApplicationData").is_none());
 

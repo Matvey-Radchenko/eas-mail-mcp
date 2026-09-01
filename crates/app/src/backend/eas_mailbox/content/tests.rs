@@ -37,6 +37,7 @@ fn missing_session_policy_fails_closed() {
         folder_sync_key: "0".into(),
         folders: BTreeMap::new(),
         collections: BTreeMap::<String, CollectionState>::new(),
+        calendar_bindings: BTreeMap::new(),
     };
     let error = policy(&state).err();
     assert!(error.is_some_and(|value| value.envelope.code == ErrorCode::ProtocolError));

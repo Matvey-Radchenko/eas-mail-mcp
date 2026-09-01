@@ -93,6 +93,8 @@ fn common(parent: &Element) -> CalendarProperties {
         "ExceptionStartTime",
         "Deleted",
         "AppointmentReplyTime",
+        "OnlineMeetingConfLink",
+        "OnlineMeetingExternalLink",
         "NativeBodyType",
     ];
     let mut seen = BTreeSet::new();

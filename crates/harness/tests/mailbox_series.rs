@@ -3,11 +3,15 @@ mod support;
 
 use chrono::{DateTime, Utc};
 use eas_mail_mcp::backend::{AccountBackend as _, BackendEvent};
-use eas_mail_protocol::protocol::{build_initial_provision, build_policy_ack};
-use eas_mail_protocol::{CalendarFields, Command, MeetingResponseChoice, Patch, RequestSafety};
+use eas_mail_protocol::protocol::{
+    build_initial_provision, build_item_fetch, build_policy_ack, build_sync,
+};
+use eas_mail_protocol::{
+    CalendarFields, CollectionKind, Command, MeetingResponseChoice, Patch, RequestSafety,
+};
 use support::{
-    call, default_policy, mailbox, mutation, options, options_with_calendar_writes,
-    provision_response, read,
+    calendar_item_response, calendar_uid_change, call, default_policy, mailbox, mutation, options,
+    options_with_calendar_writes, provision_response, read, sync_response,
 };
 
 #[tokio::test]
@@ -57,6 +61,21 @@ async fn occurrence_backend_preserves_original_instance_after_policy_refresh() -
         include_bytes!("../../../fixtures/eas/meeting-occurrence/response.wbxml").to_vec();
     let calls = vec![
         options_with_calendar_writes(),
+        read(
+            Command::Sync,
+            build_sync("calendar", "0", CollectionKind::Calendar, 6, 0)?,
+            sync_response("calendar-1", 1, false, Vec::new())?,
+        ),
+        read(
+            Command::Sync,
+            build_sync("calendar", "calendar-1", CollectionKind::Calendar, 6, 0)?,
+            sync_response("calendar-2", 1, false, vec![calendar_uid_change("item", "uid")])?,
+        ),
+        read(
+            Command::ItemOperations,
+            build_item_fetch(None, Some("calendar"), Some("item"), 50_000)?,
+            calendar_item_response("calendar", "item", "uid")?,
+        ),
         mutation(Command::MeetingResponse, request.clone(), response.clone()),
         call(
             Command::MeetingResponse,

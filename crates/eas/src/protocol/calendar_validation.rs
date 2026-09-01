@@ -13,16 +13,22 @@ pub(super) fn fields_supported(parent: &Element) -> bool {
         ("Reminder", u32::MAX),
     ];
     for (name, maximum) in numbers {
-        if direct_text(parent, "Calendar", name)
-            .is_some_and(|value| !value.parse::<u32>().is_ok_and(|number| number <= maximum))
+        if direct_text(parent, "Calendar", name).is_some_and(|value| {
+            !(value.parse::<u32>().is_ok_and(|number| number <= maximum)
+                || name == "Reminder" && value.is_empty())
+        }) {
+            return false;
+        }
+    }
+    for name in ["StartTime", "EndTime", "DtStamp", "ExceptionStartTime"] {
+        if let Some(value) = direct_text(parent, "Calendar", name)
+            && parse_datetime(Some(value)).is_none()
         {
             return false;
         }
     }
-    for name in ["StartTime", "EndTime", "DtStamp", "ExceptionStartTime", "AppointmentReplyTime"] {
-        if let Some(value) = direct_text(parent, "Calendar", name)
-            && parse_datetime(Some(value)).is_none()
-        {
+    for name in ["AppointmentReplyTime", "OnlineMeetingConfLink", "OnlineMeetingExternalLink"] {
+        if direct_text(parent, "Calendar", name).is_some_and(|value| !value.is_empty()) {
             return false;
         }
     }

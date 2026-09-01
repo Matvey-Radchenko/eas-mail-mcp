@@ -36,8 +36,10 @@ pub(super) fn merge(
         fields.attendees = Patch::Value(result.attendees.clone());
         fields.meeting_status = Patch::Value(result.meeting_status);
     }
-    if let Some(reminder) = input.reminder_minutes {
-        fields.reminder_minutes = Patch::Value(reminder);
+    if input.clear_reminder {
+        fields.reminder_minutes = Patch::Value(None);
+    } else if let Some(reminder) = input.reminder_minutes {
+        fields.reminder_minutes = Patch::Value(Some(reminder));
     }
     if input.busy_status.is_some() {
         fields.busy_status = Patch::Value(result.busy_status);
