@@ -3,6 +3,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+#[path = "fake_backend/calendar_control.rs"]
+mod calendar_control;
 #[path = "fake_backend/fixtures.rs"]
 mod fixtures;
 #[path = "fake_backend/mail.rs"]
@@ -29,11 +31,15 @@ use self::mail_fixture::mail;
 pub struct FakeBackend {
     account: BackendAccount,
     failure: Mutex<Option<ErrorCode>>,
-    operation_failure: Mutex<Option<(String, ErrorCode)>>,
+    operation_failure: Mutex<Option<(String, usize, ErrorCode)>>,
     mail_count: usize,
+    include_series: bool,
     operations: Mutex<Vec<String>>,
     calendar_items: Mutex<BTreeMap<String, BackendEvent>>,
+    calendar_messages: Mutex<Vec<Vec<u8>>>,
+    calendar_responses: Mutex<Vec<Option<chrono::DateTime<chrono::Utc>>>>,
     source_resolutions: AtomicUsize,
+    created_events: AtomicUsize,
     capabilities: BackendCapabilities,
     delay: Duration,
 }
@@ -63,9 +69,13 @@ impl FakeBackend {
             failure: Mutex::new(None),
             operation_failure: Mutex::new(None),
             mail_count: 1,
+            include_series: false,
             operations: Mutex::new(Vec::new()),
             calendar_items: Mutex::new(calendar_items),
+            calendar_messages: Mutex::new(Vec::new()),
+            calendar_responses: Mutex::new(Vec::new()),
             source_resolutions: AtomicUsize::new(0),
+            created_events: AtomicUsize::new(0),
             capabilities: BackendCapabilities {
                 calendar_availability: true,
                 mail_writes: true,
@@ -128,7 +138,7 @@ impl FakeBackend {
     /// Fails one named operation until the failure is explicitly cleared.
     pub fn set_operation_failure(&self, name: Option<&str>, code: ErrorCode) -> Result<()> {
         *self.operation_failure.lock().map_err(|_| failure(ErrorCode::StorageError))? =
-            name.map(|value| (value.to_owned(), code));
+            name.map(|value| (value.to_owned(), 0, code));
         Ok(())
     }
 
@@ -158,12 +168,17 @@ impl FakeBackend {
 
     async fn check_operation(&self, name: &str) -> Result<()> {
         self.check().await?;
-        let scripted =
-            self.operation_failure.lock().map_err(|_| failure(ErrorCode::StorageError))?.clone();
-        match scripted {
-            Some((expected, code)) if expected == name => Err(failure(code)),
-            _ => Ok(()),
+        let mut scripted =
+            self.operation_failure.lock().map_err(|_| failure(ErrorCode::StorageError))?;
+        if let Some((expected, remaining, code)) = scripted.as_mut()
+            && expected == name
+        {
+            if *remaining == 0 {
+                return Err(failure(*code));
+            }
+            *remaining -= 1;
         }
+        Ok(())
     }
 
     fn record(&self, value: &str) -> Result<()> {
@@ -201,7 +216,7 @@ impl FakeBackend {
             .as_deref()
             .filter(|value| !value.is_empty())
             .ok_or_else(|| failure(ErrorCode::NotFound))?;
-        if key != "event-created" {
+        if !key.starts_with("event-created") {
             return Ok(());
         }
         self.calendar_items
@@ -261,6 +276,34 @@ impl AccountBackend for FakeBackend {
                 mail(&self.account.account_id, MailSource::LongId(format!("{prefix}-{index}")))
             })
             .collect())
+    }
+
+    async fn search_people(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<eas_mail_protocol::protocol::DirectoryPage> {
+        self.check().await?;
+        let values = [
+            eas_mail_protocol::protocol::DirectoryPerson {
+                name: "Test User".into(),
+                email: "user@example.invalid".into(),
+            },
+            eas_mail_protocol::protocol::DirectoryPerson {
+                name: "Test Colleague".into(),
+                email: "colleague@example.invalid".into(),
+            },
+        ];
+        let mut items = values
+            .into_iter()
+            .filter(|person| {
+                person.name.to_lowercase().contains(&query.to_lowercase())
+                    || person.email.contains(query)
+            })
+            .collect::<Vec<_>>();
+        let total = items.len();
+        items.truncate(limit);
+        Ok(eas_mail_protocol::protocol::DirectoryPage { items, total })
     }
 
     async fn fetch_mail(&self, source: &MailSource, _: usize) -> Result<BackendMail> {
@@ -323,7 +366,18 @@ impl AccountBackend for FakeBackend {
 
     async fn scan_calendar_metadata(&self) -> Result<BackendCalendarSearch> {
         self.check().await?;
-        let events = vec![event(&self.account.account_id)];
+        let mut events = vec![event(&self.account.account_id)];
+        if self.include_series {
+            events.push(recurring_event(&self.account.account_id));
+        }
+        events.extend(
+            self.calendar_items
+                .lock()
+                .map_err(|_| failure(ErrorCode::StorageError))?
+                .iter()
+                .filter(|(key, _)| key.starts_with("event-created"))
+                .map(|(_, value)| value.clone()),
+        );
         Ok(BackendCalendarSearch { total: events.len(), events })
     }
 
@@ -345,7 +399,11 @@ impl AccountBackend for FakeBackend {
     ) -> Result<BackendEvent> {
         self.check_operation("calendar_create_item").await?;
         self.record("calendar_create_item")?;
-        let event = event_from_application(&self.account.account_id, &item.application);
+        let mut event = event_from_application(&self.account.account_id, &item.application);
+        let index = self.created_events.fetch_add(1, Ordering::Relaxed);
+        if index > 0 {
+            event.server_id = Some(format!("event-created-{index}"));
+        }
         self.store_calendar_item(event.clone())?;
         Ok(event)
     }
@@ -360,7 +418,7 @@ impl AccountBackend for FakeBackend {
         let mut output = event_from_application(&self.account.account_id, &item.application);
         output.collection_id.clone_from(&source.collection_id);
         output.server_id.clone_from(&source.server_id);
-        if output.server_id.as_deref() == Some("event-created") {
+        if output.server_id.as_deref().is_some_and(|id| id.starts_with("event-created")) {
             self.store_calendar_item(output.clone())?;
         }
         Ok(output)
@@ -374,11 +432,15 @@ impl AccountBackend for FakeBackend {
 
     async fn respond_calendar_item(
         &self,
-        _: &BackendEvent,
+        source: &BackendEvent,
         _: MeetingResponseChoice,
     ) -> Result<Option<String>> {
         self.check_operation("calendar_respond_item").await?;
         self.record("calendar_respond_item")?;
+        self.calendar_responses
+            .lock()
+            .map_err(|_| failure(ErrorCode::StorageError))?
+            .push(source.occurrence_start);
         Ok(Some("responded-event".into()))
     }
 
@@ -392,8 +454,9 @@ impl AccountBackend for FakeBackend {
         Ok(Some("responded-event".into()))
     }
 
-    async fn send_calendar_message(&self, _: &str, _: Vec<u8>) -> Result<()> {
+    async fn send_calendar_message(&self, _: &str, mime: Vec<u8>) -> Result<()> {
         self.check_operation("calendar_send").await?;
+        self.calendar_messages.lock().map_err(|_| failure(ErrorCode::StorageError))?.push(mime);
         self.record("calendar_send")
     }
 

@@ -53,11 +53,10 @@ pub(super) fn calendar_event(
             untrusted_external_content: true,
         })
         .collect::<Vec<_>>();
-    let recurring =
-        !map(&fields.recurrence).is_empty() || !nested_map(&fields.exceptions).is_empty();
+    let writable = super::calendar_series::properties(event).is_ok();
     let organizer_email = string(&fields.organizer_email);
-    let event_type = event_type(fields, account_email, organizer_email, &attendees);
-    let can_update = !recurring
+    let event_type = event_type(event, account_email);
+    let can_update = writable
         && matches!(event_type, CalendarEventType::Personal | CalendarEventType::OrganizerMeeting);
     CalendarEvent {
         event_ref,
@@ -81,24 +80,17 @@ pub(super) fn calendar_event(
         can_update,
         can_delete: can_update && event_type == CalendarEventType::Personal,
         can_cancel: can_update && event_type == CalendarEventType::OrganizerMeeting,
-        can_respond: !recurring && event_type == CalendarEventType::AttendeeMeeting,
+        can_respond: writable && event_type == CalendarEventType::AttendeeMeeting,
         untrusted_external_content: true,
     }
 }
 
-fn event_type(
-    fields: &eas_mail_protocol::CalendarFields,
-    account_email: &str,
-    organizer_email: &str,
-    attendees: &[CalendarAttendeeView],
-) -> CalendarEventType {
-    if attendees.is_empty() {
-        return CalendarEventType::Personal;
-    }
-    if organizer_email.eq_ignore_ascii_case(account_email) || number(&fields.meeting_status) == 1 {
-        CalendarEventType::OrganizerMeeting
-    } else {
-        CalendarEventType::AttendeeMeeting
+fn event_type(event: &BackendEvent, account_email: &str) -> CalendarEventType {
+    use super::calendar_prepare::EventOwnership;
+    match super::calendar_prepare::ownership(event, account_email) {
+        EventOwnership::Personal => CalendarEventType::Personal,
+        EventOwnership::Organizer => CalendarEventType::OrganizerMeeting,
+        EventOwnership::Attendee => CalendarEventType::AttendeeMeeting,
     }
 }
 

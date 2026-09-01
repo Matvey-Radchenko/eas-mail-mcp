@@ -6,6 +6,21 @@ use super::session::{EasMailbox, SessionState};
 use crate::{AppError, ErrorCode, Result};
 
 impl EasMailbox {
+    pub(super) async fn directory_search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<eas_mail_protocol::protocol::DirectoryPage> {
+        let mut state = self.state.lock().await;
+        self.ensure_ready(&mut state).await?;
+        let mut result = self.client.search_people(state.policy_key, query, limit).await;
+        if matches!(result, Err(EasError::PolicyRefreshRequired)) {
+            self.refresh_policy(&mut state).await?;
+            result = self.client.search_people(state.policy_key, query, limit).await;
+        }
+        result.map_err(self.scoped_error())
+    }
+
     pub(super) async fn availability(
         &self,
         participants: &[String],
@@ -42,6 +57,7 @@ impl EasMailbox {
             .items
             .into_iter()
             .map(|event| BackendEvent {
+                occurrence_start: None,
                 account_id: self.account.account_id.clone(),
                 long_id: event.long_id,
                 collection_id: event.collection_id,
@@ -87,6 +103,7 @@ impl EasMailbox {
         }
         let result = result.map_err(self.scoped_error())?;
         Ok(BackendEvent {
+            occurrence_start: source.occurrence_start,
             account_id: self.account.account_id.clone(),
             long_id: source.long_id.clone(),
             collection_id: result.collection_id.or_else(|| source.collection_id.clone()),

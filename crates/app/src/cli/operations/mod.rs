@@ -1,6 +1,7 @@
 mod calendar;
 mod calendar_args;
 mod calendar_input;
+mod calendar_recurrence;
 mod common;
 mod human;
 mod input;
@@ -8,6 +9,7 @@ mod mail;
 mod mail_args;
 mod mail_input;
 mod output;
+mod people;
 mod writes;
 
 use clap::{Args, Subcommand};
@@ -15,6 +17,7 @@ use clap::{Args, Subcommand};
 pub(super) use calendar_args::CalendarCommand;
 pub(super) use mail_args::MailCommand;
 use output::{OutputKind, OutputMode};
+pub(super) use people::PeopleCommand;
 
 use crate::cli::CliExit;
 use crate::{AccountSelection, Runtime};
@@ -66,6 +69,14 @@ pub(super) async fn mail(
     mode: OutputMode,
 ) -> crate::Result<CliExit> {
     mail::run(runtime, command, mode).await
+}
+
+pub(super) async fn people(
+    runtime: &Runtime,
+    command: PeopleCommand,
+    mode: OutputMode,
+) -> crate::Result<CliExit> {
+    people::run(runtime, command, mode).await
 }
 
 pub(super) async fn calendar(

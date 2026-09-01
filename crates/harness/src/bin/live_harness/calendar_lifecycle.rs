@@ -96,6 +96,7 @@ async fn run_personal_event(
     let created = succeeded(
         runtime
             .calendar_create(CalendarCreateInput {
+                recurrence: None,
                 account_id: account_id.to_owned(),
                 subject: subject.to_owned(),
                 schedule: initial_schedule,
@@ -121,6 +122,8 @@ async fn run_personal_event(
     let updated = succeeded(
         runtime
             .calendar_update(CalendarUpdateInput {
+                scope: None,
+                recurrence: None,
                 event_ref: required_ref(current_ref)?.to_owned(),
                 subject: Some(updated_subject.clone()),
                 schedule: Some(updated_schedule),
@@ -148,6 +151,7 @@ async fn run_personal_event(
     succeeded(
         runtime
             .calendar_delete(CalendarDeleteInput {
+                scope: None,
                 event_ref: required_ref(current_ref)?.to_owned(),
                 idempotency_key: operation_id(),
             })
@@ -208,6 +212,7 @@ async fn create_and_receive(
     let created = succeeded(
         runtime
             .calendar_create(CalendarCreateInput {
+                recurrence: None,
                 account_id: organizer.account_id.clone(),
                 subject: subject.to_owned(),
                 schedule: initial.input,
@@ -285,6 +290,8 @@ async fn update_and_decline(
     let changed = succeeded(
         runtime
             .calendar_update(CalendarUpdateInput {
+                scope: None,
+                recurrence: None,
                 event_ref: required_ref(organizer_ref)?.to_owned(),
                 subject: None,
                 schedule: Some(updated.input),
@@ -326,6 +333,7 @@ async fn cancel_meeting(
     succeeded(
         runtime
             .calendar_cancel(CalendarCancelInput {
+                scope: None,
                 event_ref: required_ref(organizer_ref)?.to_owned(),
                 comment: "Cancelled by the release harness".into(),
                 idempotency_key: operation_id(),
@@ -373,6 +381,7 @@ async fn respond(
     Ok(succeeded(
         runtime
             .calendar_respond(CalendarRespondInput {
+                scope: None,
                 event_ref: event_ref.to_owned(),
                 response,
                 comment: comment.to_owned(),

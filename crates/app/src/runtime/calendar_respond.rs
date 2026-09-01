@@ -41,19 +41,29 @@ impl Runtime {
         reference: BackendEvent,
         expected: Option<&str>,
     ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
-        calendar_prepare::require_non_recurring(&reference)?;
         let backend = self.require_write(&reference.account_id)?;
         let account = backend.account();
         self.require_calendar_capabilities(&backend, true).await?;
         let _guard = self.write_locks.acquire(&reference.account_id).await?;
-        let source = backend.resolve_calendar_source(&reference).await?;
-        calendar_prepare::require_non_recurring(&source)?;
+        if let Some(record) =
+            self.replay_write("calendar_respond", &input.idempotency_key, input)?
+        {
+            return Ok((calendar_write_result::existing(record), Vec::new()));
+        }
+        let mut source = self.account_result(
+            &reference.account_id,
+            backend.resolve_calendar_source(&reference).await,
+        )?;
+        source.occurrence_start = reference.occurrence_start;
+        let revision = super::calendar_series::revision(&source)?;
         if calendar_prepare::ownership(&source, &account.email) != EventOwnership::Attendee {
             return Err(validation("calendar_respond requires a received meeting"));
         }
-        let prepared = calendar_prepare::existing(&source, self.clock.now())?;
+        let prepared =
+            super::calendar_series::response::prepare(&mut source, input, self.clock.now())?;
         write_preview::verify(
-            &response_preview(&reference.account_id, &prepared, input),
+            &response_preview(&reference.account_id, &prepared, input)
+                .field("Current revision", revision),
             expected,
         )?;
         let organizer = organizer(&source)?;
@@ -105,6 +115,9 @@ impl Runtime {
             &reference.account_id,
             backend.fetch_mail(&reference.source, 50_000).await,
         )?;
+        if input.scope.is_some_and(|scope| scope != crate::model::CalendarScope::Series) {
+            return Err(validation("occurrence responses require a calendar occurrence reference"));
+        }
         let prepared = calendar_response_prepare::prepare(&fetched, self.clock.now())?;
         write_preview::verify(
             &response_preview(&reference.account_id, &prepared.event, input),

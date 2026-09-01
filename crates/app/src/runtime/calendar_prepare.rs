@@ -12,6 +12,7 @@ use crate::model::{
 use crate::sanitize::plain_text;
 use crate::{AppError, ErrorCode, Result};
 
+#[derive(Clone)]
 pub(super) struct PreparedEvent {
     pub(super) mutation: BackendCalendarMutation,
     pub(super) all_day_dates: Option<(NaiveDate, NaiveDate)>,
@@ -41,9 +42,11 @@ pub(super) fn create(
     let schedule = calendar_schedule::prepare(&input.schedule)?;
     let attendees = attendees(&input.attendees, account_email)?;
     let is_meeting = !attendees.is_empty();
-    Ok(PreparedEvent {
+    let mut prepared = PreparedEvent {
         mutation: BackendCalendarMutation {
+            target_collection: None,
             application: CalendarApplication {
+                properties: Default::default(),
                 time_zone: schedule.time_zone,
                 uid,
                 dt_stamp: now,
@@ -61,7 +64,13 @@ pub(super) fn create(
             },
         },
         all_day_dates: schedule.all_day_dates,
-    })
+    };
+    if let Some(rule) = &input.recurrence {
+        prepared.mutation.application.properties.recurrence =
+            Some(super::calendar_series::rule::prepare(rule, &prepared.mutation.application)?);
+    }
+    super::calendar_series::validate(&prepared.mutation.application)?;
+    Ok(prepared)
 }
 
 pub(super) fn update(
@@ -70,7 +79,6 @@ pub(super) fn update(
     now: DateTime<Utc>,
     account_email: &str,
 ) -> Result<PreparedUpdate> {
-    require_non_recurring(source)?;
     if ownership(source, account_email) == EventOwnership::Attendee {
         return Err(validation("only the organizer can update this meeting"));
     }
@@ -93,8 +101,10 @@ pub(super) fn update(
     let old_attendees = existing.mutation.application.attendees.clone();
     let current_attendees = replacement.unwrap_or_else(|| old_attendees.clone());
     let removed_attendees = removed(&old_attendees, &current_attendees);
-    let current_is_meeting = !current_attendees.is_empty();
+    let current_is_meeting = !current_attendees.is_empty()
+        || existing.mutation.application.properties.has_attendee_overrides();
     let application = CalendarApplication {
+        properties: existing.mutation.application.properties.clone(),
         time_zone: schedule.as_ref().map_or_else(
             || existing.mutation.application.time_zone.clone(),
             |value| value.time_zone.clone(),
@@ -125,25 +135,41 @@ pub(super) fn update(
     };
     Ok(PreparedUpdate {
         event: PreparedEvent {
-            mutation: BackendCalendarMutation { application },
-            all_day_dates: schedule
-                .and_then(|value| value.all_day_dates)
-                .or(existing.all_day_dates),
+            mutation: BackendCalendarMutation { target_collection: None, application },
+            all_day_dates: schedule.map_or(existing.all_day_dates, |value| value.all_day_dates),
         },
         removed_attendees,
     })
 }
 
 pub(super) fn existing(source: &BackendEvent, now: DateTime<Utc>) -> Result<PreparedEvent> {
+    from_fields(source, now, super::calendar_series::properties(source)?)
+}
+
+pub(super) fn from_fields(
+    source: &BackendEvent,
+    now: DateTime<Utc>,
+    properties: eas_mail_protocol::CalendarProperties,
+) -> Result<PreparedEvent> {
     let fields = &source.fields;
     let starts_at = required_datetime(&fields.starts_at, "Calendar start is missing")?;
     let ends_at = required_datetime(&fields.ends_at, "Calendar end is missing")?;
     let all_day = boolean(&fields.all_day);
-    let all_day_dates = all_day.then_some((starts_at.date_naive(), ends_at.date_naive()));
     let time_zone = required_string(&fields.time_zone, "Calendar timezone is missing")?;
+    let all_day_dates = if all_day {
+        let zone = super::calendar_agenda::timezone::EventTimeZone::parse(
+            Some(&time_zone),
+            chrono_tz::UTC,
+        )?;
+        Some((zone.to_local(starts_at)?.date(), zone.to_local(ends_at)?.date()))
+    } else {
+        None
+    };
     Ok(PreparedEvent {
         mutation: BackendCalendarMutation {
+            target_collection: None,
             application: CalendarApplication {
+                properties,
                 time_zone,
                 uid: required_string(&fields.uid, "Calendar UID is missing")?,
                 dt_stamp: now,
@@ -155,7 +181,7 @@ pub(super) fn existing(source: &BackendEvent, now: DateTime<Utc>) -> Result<Prep
                 location: plain_text(string(&fields.location)),
                 reminder_minutes: optional_number(&fields.reminder_minutes),
                 busy_status: number(&fields.busy_status),
-                meeting_status: u16::from(!list(&fields.attendees).is_empty()),
+                meeting_status: number(&fields.meeting_status),
                 response_requested: boolean(&fields.response_requested),
                 attendees: list(&fields.attendees),
             },
@@ -165,7 +191,15 @@ pub(super) fn existing(source: &BackendEvent, now: DateTime<Utc>) -> Result<Prep
 }
 
 pub(super) fn ownership(source: &BackendEvent, account_email: &str) -> EventOwnership {
-    if list(&source.fields.attendees).is_empty() {
+    let exception_attendees = source
+        .fields
+        .properties
+        .as_ref()
+        .is_some_and(eas_mail_protocol::CalendarProperties::has_attendee_overrides);
+    if list(&source.fields.attendees).is_empty()
+        && !exception_attendees
+        && number(&source.fields.meeting_status) & 1 == 0
+    {
         EventOwnership::Personal
     } else if string(&source.fields.organizer_email).eq_ignore_ascii_case(account_email)
         || number(&source.fields.meeting_status) == 1
@@ -176,14 +210,14 @@ pub(super) fn ownership(source: &BackendEvent, account_email: &str) -> EventOwne
     }
 }
 
-pub(super) fn require_non_recurring(source: &BackendEvent) -> Result<()> {
-    let recurrence = matches!(&source.fields.recurrence, Patch::Value(value) if !value.is_empty());
-    let exceptions = matches!(&source.fields.exceptions, Patch::Value(value) if !value.is_empty());
-    if recurrence || exceptions {
-        Err(validation("recurring events and recurrence exceptions are read-only"))
-    } else {
-        Ok(())
+pub(super) fn refresh_organizer_status(item: &mut CalendarApplication) {
+    let meeting = !item.attendees.is_empty() || item.properties.has_attendee_overrides();
+    if !meeting {
+        item.response_requested = false;
+    } else if item.meeting_status & 1 == 0 {
+        item.response_requested = true;
     }
+    item.meeting_status = u16::from(meeting);
 }
 
 pub(super) fn validate_comment(value: &str) -> Result<()> {

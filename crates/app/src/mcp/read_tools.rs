@@ -8,11 +8,27 @@ use crate::model::{
     CalendarAvailabilityData, CalendarAvailabilityInput, CalendarEvent, CalendarFindSlotsInput,
     CalendarGetInput, CalendarSearchData, CalendarSearchInput, CalendarSlotsData, FoldersData,
     MailAttachmentsInput, MailDetail, MailGetInput, MailListInput, MailPage, MailSearchInput,
-    SyncData,
+    PeopleSearchData, PeopleSearchInput, SyncData,
 };
 
 #[tool_router(router = read_tools, vis = "pub(crate)")]
 impl MailMcpServer {
+    /// Searches one account's directory for names and email addresses, without calendar data.
+    #[tool(
+        name = "people_search",
+        annotations(
+            title = "Find directory people",
+            read_only_hint = true,
+            open_world_hint = true
+        )
+    )]
+    async fn people_search(
+        &self,
+        Parameters(input): Parameters<PeopleSearchInput>,
+    ) -> Json<ApiResponse<PeopleSearchData>> {
+        Json(self.runtime.people_search(input).await)
+    }
+
     /// Lists configured managed accounts without returning credentials.
     #[tool(
         name = "accounts_list",

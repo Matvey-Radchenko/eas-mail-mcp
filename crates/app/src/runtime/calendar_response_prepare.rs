@@ -41,7 +41,9 @@ pub(super) fn prepare(mail: &BackendMail, now: DateTime<Utc>) -> Result<Prepared
     Ok(PreparedMeetingRequest {
         event: PreparedEvent {
             mutation: BackendCalendarMutation {
+                target_collection: None,
                 application: CalendarApplication {
+                    properties: Default::default(),
                     time_zone: request.time_zone.clone(),
                     uid,
                     dt_stamp: request.dt_stamp.unwrap_or(now),

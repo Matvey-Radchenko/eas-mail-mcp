@@ -191,11 +191,18 @@ fn parse_meeting_request(value: &Element) -> MeetingRequest {
 }
 
 pub(super) fn parse_calendar_fields(application: &Element) -> CalendarFields {
+    let mut fields = parse_calendar_fields_base(application);
+    fields.properties = Some(super::calendar_properties::parse(application));
+    fields
+}
+
+pub(super) fn parse_calendar_fields_base(application: &Element) -> CalendarFields {
     let organizer = match string_patch(application, "Calendar", "OrganizerName") {
         Patch::Missing => string_patch(application, "Calendar", "OrganizerEmail"),
         value => value,
     };
     CalendarFields {
+        properties: None,
         subject: string_patch(application, "Calendar", "Subject"),
         body: application.child("AirSyncBase", "Body").map_or(Patch::Missing, |body| {
             Patch::Value(direct_text(body, "AirSyncBase", "Data").unwrap_or_default())

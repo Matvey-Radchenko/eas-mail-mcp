@@ -7,6 +7,9 @@ pub(super) fn render(value: &Value, kind: OutputKind) -> Result<String> {
     match kind {
         OutputKind::Accounts => list(value, "/accounts", account_line),
         OutputKind::Folders => list(value, "/folders", folder_line),
+        OutputKind::People => list(value, "/items", |person| {
+            format!("{}  {}", field(person, "name"), field(person, "email"))
+        }),
         OutputKind::MailList => list(value, "/items", mail_line),
         OutputKind::MailDetail => mail_detail(value),
         OutputKind::Attachments => list(value, "/attachments", attachment_line),

@@ -1,5 +1,5 @@
-mod recurrence;
-mod timezone;
+pub(in crate::runtime) mod recurrence;
+pub(in crate::runtime) mod timezone;
 
 use chrono::{DateTime, LocalResult, NaiveDate, NaiveDateTime, TimeZone as _, Utc};
 use chrono_tz::Tz;

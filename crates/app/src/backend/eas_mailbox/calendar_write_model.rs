@@ -11,6 +11,7 @@ pub(super) fn backend_event(
     item: &CalendarApplication,
 ) -> BackendEvent {
     BackendEvent {
+        occurrence_start: None,
         account_id: mailbox.account.account_id.clone(),
         long_id: String::new(),
         collection_id: Some(collection_id),
@@ -21,6 +22,21 @@ pub(super) fn backend_event(
 
 fn application_fields(item: &CalendarApplication) -> CalendarFields {
     CalendarFields {
+        properties: Some(item.properties.clone()),
+        recurrence: Patch::Value(
+            item.properties
+                .recurrence
+                .as_ref()
+                .map(eas_mail_protocol::CalendarRecurrence::to_fields)
+                .unwrap_or_default(),
+        ),
+        exceptions: Patch::Value(
+            item.properties
+                .exceptions
+                .iter()
+                .map(eas_mail_protocol::protocol::exception_fields)
+                .collect(),
+        ),
         subject: Patch::Value(item.subject.clone()),
         body: Patch::Value(item.body.clone()),
         body_truncated: Patch::Value(false),

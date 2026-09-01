@@ -16,6 +16,7 @@ pub(in crate::cli) enum OutputMode {
 pub(super) enum OutputKind {
     Accounts,
     Folders,
+    People,
     MailList,
     MailDetail,
     Attachments,

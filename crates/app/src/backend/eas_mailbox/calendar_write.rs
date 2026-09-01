@@ -31,7 +31,17 @@ impl EasMailbox {
         client_id: &str,
         item: &BackendCalendarMutation,
     ) -> Result<BackendEvent> {
-        let collection_id = self.default_calendar_id().await?;
+        let collection_id = if let Some(target) = &item.target_collection {
+            if !self.calendar_folder_ids().await?.iter().any(|(_, id)| id == target) {
+                return Err(AppError::new(
+                    ErrorCode::NotFound,
+                    "target Calendar folder is unavailable",
+                ));
+            }
+            target.clone()
+        } else {
+            self.default_calendar_id().await?
+        };
         let mut state = self.state.lock().await;
         self.ensure_ready(&mut state).await?;
         self.require_personal_calendar_writes(&state)?;
@@ -103,11 +113,25 @@ impl EasMailbox {
         self.require_calendar_capability(&state, Command::MeetingResponse, "MeetingResponse")?;
         let result = self
             .client
-            .meeting_response(state.policy_key, collection_id, server_id, response)
+            .meeting_response_instance(
+                state.policy_key,
+                collection_id,
+                server_id,
+                response,
+                source.occurrence_start,
+            )
             .await;
         let result = if matches!(result, Err(EasError::PolicyRefreshRequired)) {
             self.refresh_policy(&mut state).await?;
-            self.client.meeting_response(state.policy_key, collection_id, server_id, response).await
+            self.client
+                .meeting_response_instance(
+                    state.policy_key,
+                    collection_id,
+                    server_id,
+                    response,
+                    source.occurrence_start,
+                )
+                .await
         } else {
             result
         }
@@ -206,6 +230,7 @@ impl EasMailbox {
                     && patch_eq(&fields.uid, uid)
                 {
                     return Ok(Some(BackendEvent {
+                        occurrence_start: None,
                         account_id: self.account.account_id.clone(),
                         long_id: String::new(),
                         collection_id: Some(collection_id.to_owned()),

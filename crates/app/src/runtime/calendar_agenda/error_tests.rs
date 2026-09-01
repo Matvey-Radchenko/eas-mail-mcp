@@ -179,6 +179,7 @@ fn recurring_event() -> anyhow::Result<BackendEvent> {
 
 fn event(start: &str, end: &str) -> anyhow::Result<BackendEvent> {
     Ok(BackendEvent {
+        occurrence_start: None,
         account_id: "work".into(),
         long_id: String::new(),
         collection_id: Some("calendar".into()),

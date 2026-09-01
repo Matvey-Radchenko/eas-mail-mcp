@@ -276,6 +276,14 @@ impl AccountBackend for EasMailbox {
         self.search(query, limit).await
     }
 
+    async fn search_people(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<eas_mail_protocol::protocol::DirectoryPage> {
+        self.directory_search(query, limit).await
+    }
+
     async fn fetch_mail(&self, source: &MailSource, body_limit: usize) -> Result<BackendMail> {
         self.fetch(source, body_limit).await
     }

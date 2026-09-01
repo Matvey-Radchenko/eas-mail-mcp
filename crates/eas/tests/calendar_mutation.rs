@@ -113,6 +113,7 @@ fn calendar_item() -> anyhow::Result<CalendarApplication> {
         .single()
         .ok_or_else(|| anyhow::anyhow!("invalid fixture start"))?;
     Ok(CalendarApplication {
+        properties: Default::default(),
         time_zone: "AAAA".into(),
         uid: "uid-1".into(),
         dt_stamp: starts_at,

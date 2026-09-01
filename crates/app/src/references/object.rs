@@ -1,5 +1,6 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use chrono::{Datelike as _, Timelike as _};
 use eas_mail_protocol::{CalendarFields, MailFields};
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +44,8 @@ enum MailLocator {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EventPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    occurrence_start: Option<chrono::DateTime<chrono::Utc>>,
     account_id: String,
     long_id: String,
     collection_id: Option<String>,
@@ -87,6 +90,7 @@ pub(super) fn decode_mail(value: &str) -> Result<BackendMail> {
 
 pub(super) fn encode_event(value: BackendEvent) -> Result<String> {
     let payload = EventPayload {
+        occurrence_start: value.occurrence_start,
         account_id: value.account_id,
         long_id: value.long_id,
         collection_id: value.collection_id,
@@ -100,6 +104,7 @@ pub(super) fn decode_event(value: &str) -> Result<BackendEvent> {
     let payload: EventPayload = decode("event", value)?;
     validate_event(&payload)?;
     Ok(BackendEvent {
+        occurrence_start: payload.occurrence_start,
         account_id: payload.account_id,
         long_id: payload.long_id,
         collection_id: payload.collection_id,
@@ -181,6 +186,12 @@ fn validate_mail(payload: &MailPayload) -> Result<()> {
 }
 
 fn validate_event(payload: &EventPayload) -> Result<()> {
+    if payload
+        .occurrence_start
+        .is_some_and(|value| !(1..=9999).contains(&value.year()) || value.nanosecond() != 0)
+    {
+        return Err(invalid());
+    }
     validate_required(&payload.account_id, MAX_ACCOUNT_BYTES)?;
     validate_optional(&payload.long_id, MAX_LOCATOR_BYTES)?;
     if let Some(value) = &payload.collection_id {

@@ -33,10 +33,11 @@ mailbox export.
 | --- | --- |
 | Mail | List folders and recent messages, search Exchange, fetch one body or attachment on demand |
 | Mail actions | Mark as read, send, reply, and forward with idempotent write protection |
+| People | Search one account's server directory by name or email; return only names and email addresses |
 | Personal agenda | Return a compact, body-free schedule for a date range, including expanded recurrences and exceptions |
 | Availability | Resolve people, read 30-minute free/busy states, and calculate common working-hour slots in Rust |
 | Calendar details | Search events and fetch one selected event with its body, attendees, recurrence, and exceptions |
-| Calendar actions | Create, update, delete, or cancel events and respond to meeting invitations |
+| Calendar actions | Create one-off or recurring events; edit/cancel a series, an occurrence, or its remaining tail; respond to a series or occurrence |
 | Multiple accounts | Work with several independently configured EAS profiles and return partial results with warnings |
 
 Typical requests include:
@@ -44,6 +45,7 @@ Typical requests include:
 - "Show important unread mail from today."
 - "Find a one-hour slot that is free for these participants next week."
 - "Show my agenda for tomorrow without meeting bodies."
+- "Find Alex's email and schedule a weekly meeting."
 - "Draft a reply, show it to me, and send it only after I approve the text."
 
 The MCP executes write tools immediately when an agent calls them. The CLI shows
@@ -148,19 +150,21 @@ eas-mail-mcp --human calendar agenda \
 
 JSON envelopes are printed to stdout by default. Human output is opt-in with
 `--human`; warnings, write previews, confirmations, and errors go to stderr so
-stdout remains safe for pipes. See the [CLI reference](docs/cli.md) for all 21
+stdout remains safe for pipes. See the [CLI reference](docs/cli.md) for all 22
 commands, JSON input, pagination, portable references, write confirmation, and
 exit codes. `sync_status` and `sync_now` remain MCP-only because their state is
 process-local.
 
 ## MCP tools
 
-The server currently exposes 22 tools.
+Version `0.5.0` exposes 23 tools, including bounded directory search and
+recurring calendar writes.
 
 <details>
 <summary>Read tools</summary>
 
 - `accounts_list`, `folders_list`, `sync_status`, `sync_now`
+- `people_search`
 - `mail_list`, `mail_search`, `mail_get`
 - `mail_list_attachments`, `mail_download_attachment`
 - `calendar_availability`, `calendar_find_slots`
@@ -178,7 +182,7 @@ The server currently exposes 22 tools.
 </details>
 
 Lists and searches are bounded. Full bodies, attachments, and event details are
-loaded only through dedicated tools. Mail and calendar content is marked as
+loaded only through dedicated tools. Mail, directory, and calendar content is marked as
 `untrusted_external_content` before it is returned to the client.
 
 ## Security model
@@ -202,7 +206,7 @@ or an externally hosted AI model.
 
 ## Compatibility and limits
 
-`0.4.0` supports macOS arm64 and x86_64 and Windows 11 x64. Windows ARM64 and
+`0.5.0` supports macOS arm64 and x86_64 and Windows 11 x64. Windows ARM64 and
 Linux are not supported. The Windows executable is distributed without an
 Authenticode signature. Each release contains the root npm tarball plus three
 native tarballs for the supported platform/architecture pairs.
@@ -215,15 +219,21 @@ Manual Windows 11 validation of Credential Manager, symlink/reparse-point
 protections, and live Exchange connectivity is still pending; CI does not
 replace that end-to-end check.
 
-Windows `0.4.0` stores all accounts in one Credential Manager entry, limited to
+Windows stores all accounts in one Credential Manager entry, limited to
 2,560 bytes of UTF-16 data. The number of accounts that fit depends on their
 credentials and device/policy state; see [local data](docs/getting-started.md#local-data).
 
 The runtime intentionally fixes HTTPS, EAS 14.1,
 `/Microsoft-Server-ActiveSync`, and `DeviceType=EasMailMCP`. It does not support
 OAuth, Microsoft Graph, IMAP, custom endpoint paths, redirects, TLS bypasses, or
-spoofing another client identity. Recurring events can be read, but modifying a
-series or one occurrence is rejected before any network write.
+spoofing another client identity. Recurring writes require an explicit scope.
+Unsupported recurrence data or a change that cannot preserve existing exceptions
+is rejected before mutation. See [recurring events](docs/calendar-series.md)
+for selectors, references, and split semantics.
+
+Recurring invitations are covered by fake-server and MIME tests, but were not
+validated with a live recipient before `0.5.0`. Treat invitation delivery as a
+known release limitation until a post-release live check is recorded.
 
 Exchange policy, server capabilities, allowlists, and corporate network rules
 can still prevent a technically valid profile from connecting.
@@ -232,6 +242,7 @@ can still prevent a technically valid profile from connecting.
 
 - [Getting started](docs/getting-started.md): installation, setup, accounts, and clients
 - [CLI reference](docs/cli.md): operational commands, input/output, references, and writes
+- [Recurring events](docs/calendar-series.md): scopes, exceptions, and directory search
 - [Установка на русском](docs/installation.ru.md): краткая русская инструкция
 - [Agent installation](docs/agent-installation.ru.md): безопасная передача настройки ИИ-агенту
 - [Runtime profiles](docs/runtime-profiles.md): portable profile schema and trust modes

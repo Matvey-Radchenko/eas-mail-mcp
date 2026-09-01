@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-08-14
-- Amended: 2026-08-24
+- Amended: 2026-08-27
 
 ## Context
 
@@ -11,7 +11,7 @@ be duplicated by retries or initiated without adequate user review.
 
 ## Decision
 
-Expose 13 read tools, four mail write tools, and five Calendar lifecycle tools
+Expose 14 read tools, four mail write tools, and five Calendar lifecycle tools
 with structured schemas. Lists are bounded to 100, previews to 500 characters,
 and bodies to 12,000 by default and 50,000 maximum. Text search always runs on
 Exchange. Calendar date-range search performs a fresh metadata-only Sync and
@@ -21,12 +21,13 @@ and attachment references instead use one stateless, versioned codec containing
 only bounded account and EAS locator metadata. The same opaque reference works
 across MCP and CLI processes while Exchange still recognizes the item.
 
-Calendar create, update, delete, cancel, and respond support non-recurring items
-only. Organizer lifecycle operations combine Calendar Sync with MIME/iCalendar
+Calendar create, update, delete, cancel, and respond support one-off items and
+explicitly scoped recurrence operations described in [ADR 0004](0004-recurring-calendar-and-directory.md).
+Organizer lifecycle operations combine Calendar Sync with MIME/iCalendar
 notifications, while attendee responses combine MeetingResponse with an
 optional reply. A multi-step operation records confirmed steps and returns
-`partial` after a later safe failure. Recurring series and exceptions remain
-read-only.
+`partial` after a later safe failure. Unknown or lossy recurrence data remains
+read-only. Directory search is a bounded single-account GAL request.
 
 Writes require account opt-in and a UUID; reported client name and version are
 diagnostic only. Resolve references and validate a write, including a 50,000

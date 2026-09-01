@@ -4,7 +4,7 @@ default-members = ["crates/app", "crates/eas", "crates/harness"]
 resolver = "2"
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
@@ -21,7 +21,7 @@ dirs = "6.0.0"
 futures = "0.3.31"
 hmac = "0.12.1"
 html2text = "0.16.7"
-icalendar = { version = "0.17.13", default-features = false }
+icalendar = { version = "0.17.13", default-features = false, features = ["parser"] }
 json5 = "0.4.1"
 keyring = "3.6.3"
 mail-builder = { version = "0.4.4", default-features = false }

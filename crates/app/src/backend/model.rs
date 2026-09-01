@@ -47,6 +47,8 @@ pub struct BackendMail {
 /// Process-local calendar record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackendEvent {
+    /// Original recurrence start selected by a portable occurrence reference.
+    pub occurrence_start: Option<chrono::DateTime<chrono::Utc>>,
     /// Stable account identifier.
     pub account_id: String,
     /// Search LongId used for an on-demand ItemOperations fetch.
@@ -84,6 +86,8 @@ pub struct BackendCapabilities {
 /// Prepared non-recurring event sent to a backend Calendar mutation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackendCalendarMutation {
+    /// Optional existing Calendar folder for a newly split series.
+    pub target_collection: Option<String>,
     /// Complete EAS Calendar ApplicationData.
     pub application: CalendarApplication,
 }

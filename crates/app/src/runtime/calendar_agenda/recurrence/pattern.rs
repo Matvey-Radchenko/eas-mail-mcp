@@ -5,7 +5,7 @@ use chrono::{DateTime, Datelike as _, Duration, NaiveDate, NaiveDateTime, Utc};
 use super::super::protocol;
 use crate::{AppError, ErrorCode, Result};
 
-pub(super) struct Pattern {
+pub(in crate::runtime) struct Pattern {
     kind: u8,
     interval: u32,
     day_mask: Option<u32>,
@@ -14,11 +14,11 @@ pub(super) struct Pattern {
     month_of_year: Option<u32>,
     first_weekday: u32,
     occurrences: Option<u32>,
-    pub(super) until: Option<DateTime<Utc>>,
+    pub(in crate::runtime) until: Option<DateTime<Utc>>,
 }
 
 impl Pattern {
-    pub(super) fn parse(values: &BTreeMap<String, String>) -> Result<Self> {
+    pub(in crate::runtime) fn parse(values: &BTreeMap<String, String>) -> Result<Self> {
         let calendar_type = number(values, "calendartype")?.unwrap_or(1);
         if !matches!(calendar_type, 0 | 1) {
             return Err(AppError::new(
@@ -56,7 +56,11 @@ impl Pattern {
         })
     }
 
-    pub(super) fn ordinal(&self, date: NaiveDate, master: NaiveDate) -> Result<Option<u32>> {
+    pub(in crate::runtime) fn ordinal(
+        &self,
+        date: NaiveDate,
+        master: NaiveDate,
+    ) -> Result<Option<u32>> {
         if date < master {
             return Ok(None);
         }
@@ -71,7 +75,7 @@ impl Pattern {
         }
     }
 
-    pub(super) fn allows(&self, ordinal: u32) -> bool {
+    pub(in crate::runtime) fn allows(&self, ordinal: u32) -> bool {
         self.occurrences.is_none_or(|maximum| ordinal <= maximum)
     }
 
@@ -133,14 +137,14 @@ impl Pattern {
                     .ok_or_else(|| protocol("Monthly recurrence has no week index"))?,
             )?
         } else {
-            exact_date(
+            calendar_day(
                 date.year(),
                 date.month(),
                 self.day_of_month
                     .ok_or_else(|| protocol("Monthly recurrence has no day of month"))?,
             )
         };
-        ordinal_if_date(expected, date, months / i64::from(self.interval))
+        self.calendar_ordinal(expected, date, master, relative, false)
     }
 
     fn yearly(&self, date: NaiveDate, master: NaiveDate, relative: bool) -> Result<Option<u32>> {
@@ -158,37 +162,87 @@ impl Pattern {
                     .ok_or_else(|| protocol("Yearly recurrence has no week index"))?,
             )?
         } else {
-            exact_date(
+            calendar_day(
                 date.year(),
                 month,
                 self.day_of_month
                     .ok_or_else(|| protocol("Yearly recurrence has no day of month"))?,
             )
         };
-        ordinal_if_date(expected, date, years / i64::from(self.interval))
+        self.calendar_ordinal(expected, date, master, relative, true)
     }
-}
-
-fn ordinal_if_date(
-    expected: Option<NaiveDate>,
-    date: NaiveDate,
-    index: i64,
-) -> Result<Option<u32>> {
-    if expected != Some(date) {
-        return Ok(None);
+    fn calendar_ordinal(
+        &self,
+        expected: Option<NaiveDate>,
+        date: NaiveDate,
+        master: NaiveDate,
+        relative: bool,
+        yearly: bool,
+    ) -> Result<Option<u32>> {
+        if expected != Some(date) {
+            return Ok(None);
+        }
+        let stride = i64::from(self.interval) * if yearly { 12 } else { 1 };
+        let cycles = month_delta(master, date) / stride;
+        if cycles > 120_000 {
+            return Err(protocol("Calendar recurrence range is too large"));
+        }
+        let anchor = i64::from(master.year()) * 12 + i64::from(master.month0());
+        let mut count = 0;
+        for index in 0..=cycles {
+            let absolute = anchor + index * stride;
+            let year = i32::try_from(absolute.div_euclid(12))
+                .map_err(|_| protocol("Calendar year overflowed"))?;
+            let month = if yearly {
+                self.month_of_year.unwrap_or(master.month())
+            } else {
+                u32::try_from(absolute.rem_euclid(12) + 1)
+                    .map_err(|_| protocol("Calendar month overflowed"))?
+            };
+            let candidate = if relative {
+                nth_date(
+                    year,
+                    month,
+                    self.day_mask.unwrap_or_else(|| weekday_bit(master)),
+                    self.week_of_month.ok_or_else(|| protocol("Calendar ordinal is missing"))?,
+                )?
+            } else {
+                calendar_day(
+                    year,
+                    month,
+                    self.day_of_month.ok_or_else(|| protocol("Calendar day is missing"))?,
+                )
+            };
+            if candidate.is_some_and(|candidate| candidate >= master && candidate <= date) {
+                count += 1;
+            }
+        }
+        Ok(Some(count))
     }
-    u32::try_from(index + 1)
-        .map(Some)
-        .map_err(|_| protocol("Calendar recurrence ordinal overflowed"))
 }
 
 fn exact_date(year: i32, month: u32, day: u32) -> Option<NaiveDate> {
     NaiveDate::from_ymd_opt(year, month, day)
 }
 
+fn calendar_day(year: i32, month: u32, day: u32) -> Option<NaiveDate> {
+    if !(1..=31).contains(&day) {
+        return None;
+    }
+    // Exchange clamps a numbered date to month-end; RFC BYMONTHDAY alone would skip it.
+    let next =
+        if month == 12 { exact_date(year + 1, 1, 1) } else { exact_date(year, month + 1, 1) }?;
+    let last = next.pred_opt()?.day();
+    exact_date(year, month, day.min(last))
+}
+
 fn nth_date(year: i32, month: u32, mask: u32, nth: u32) -> Result<Option<NaiveDate>> {
     if mask == 127 {
-        return Ok(exact_date(year, month, nth));
+        return Ok(if nth == 5 {
+            calendar_day(year, month, 31)
+        } else {
+            exact_date(year, month, nth)
+        });
     }
     if !(1..=5).contains(&nth) || mask == 0 || mask > 127 {
         return Err(protocol("Calendar recurrence monthly selector is invalid"));

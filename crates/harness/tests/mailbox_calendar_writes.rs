@@ -40,7 +40,10 @@ async fn calendar_add_initializes_sync_key_without_loading_events() -> anyhow::R
     ];
     let (mailbox, transport) = mailbox(calls, default_policy())?;
     let created = mailbox
-        .create_calendar_item("client-1", &BackendCalendarMutation { application: item })
+        .create_calendar_item(
+            "client-1",
+            &BackendCalendarMutation { target_collection: None, application: item },
+        )
         .await?;
     assert_eq!(created.collection_id.as_deref(), Some("calendar"));
     assert_eq!(created.server_id.as_deref(), Some("event-1"));
@@ -52,6 +55,7 @@ async fn calendar_add_initializes_sync_key_without_loading_events() -> anyhow::R
 async fn item_operations_source_is_reused_for_change_response_and_delete() -> anyhow::Result<()> {
     let item = application()?;
     let search_source = BackendEvent {
+        occurrence_start: None,
         account_id: "work".into(),
         long_id: "long-1".into(),
         collection_id: None,
@@ -89,7 +93,10 @@ async fn item_operations_source_is_reused_for_change_response_and_delete() -> an
     let (mailbox, transport) = mailbox(calls, default_policy())?;
     let source = mailbox.resolve_calendar_source(&search_source).await?;
     let updated = mailbox
-        .update_calendar_item(&source, &BackendCalendarMutation { application: item })
+        .update_calendar_item(
+            &source,
+            &BackendCalendarMutation { target_collection: None, application: item },
+        )
         .await?;
     assert_eq!(updated.server_id.as_deref(), Some("event-1"));
     assert_eq!(
@@ -197,7 +204,10 @@ async fn invalid_sync_key_resets_only_calendar_and_scans_paged_metadata() -> any
     ];
     let (mailbox, transport) = mailbox(calls, default_policy())?;
     let updated = mailbox
-        .update_calendar_item(&source, &BackendCalendarMutation { application: item })
+        .update_calendar_item(
+            &source,
+            &BackendCalendarMutation { target_collection: None, application: item },
+        )
         .await?;
     assert_eq!(updated.server_id.as_deref(), Some("new-event"));
     transport.verify_complete()?;
@@ -268,6 +278,7 @@ fn application() -> anyhow::Result<CalendarApplication> {
         .single()
         .ok_or_else(|| anyhow::anyhow!("invalid fixture time"))?;
     Ok(CalendarApplication {
+        properties: Default::default(),
         time_zone: "AAAA".into(),
         uid: "uid-1".into(),
         dt_stamp: starts_at,
@@ -292,6 +303,7 @@ fn application() -> anyhow::Result<CalendarApplication> {
 
 fn source(server_id: &str, uid: &str) -> BackendEvent {
     BackendEvent {
+        occurrence_start: None,
         account_id: "work".into(),
         long_id: String::new(),
         collection_id: Some("calendar".into()),

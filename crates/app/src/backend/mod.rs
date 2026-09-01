@@ -35,6 +35,13 @@ pub trait AccountBackend: Send + Sync {
     /// Performs EAS Search and returns server results.
     async fn search_mail(&self, query: &str, limit: usize) -> Result<Vec<BackendMail>>;
 
+    /// Searches only the account's global address list.
+    async fn search_people(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<eas_mail_protocol::protocol::DirectoryPage>;
+
     /// Fetches a full message body from Exchange.
     async fn fetch_mail(&self, source: &MailSource, body_limit: usize) -> Result<BackendMail>;
 

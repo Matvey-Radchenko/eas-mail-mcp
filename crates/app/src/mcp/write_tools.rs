@@ -83,7 +83,7 @@ impl MailMcpServer {
         Json(self.runtime.mail_forward(input).await)
     }
 
-    /// Immediately creates a non-recurring event or meeting for a write-enabled account.
+    /// Immediately creates a personal event or meeting, optionally with a recurrence rule.
     #[tool(
         name = "calendar_create",
         annotations(
@@ -101,7 +101,7 @@ impl MailMcpServer {
         Json(self.runtime.calendar_create(input).await)
     }
 
-    /// Immediately updates a referenced non-recurring event or organizer meeting.
+    /// Immediately updates an event or organizer meeting; recurring events require an explicit scope.
     #[tool(
         name = "calendar_update",
         annotations(
@@ -119,7 +119,7 @@ impl MailMcpServer {
         Json(self.runtime.calendar_update(input).await)
     }
 
-    /// Immediately deletes a referenced non-recurring personal event.
+    /// Immediately deletes a personal event; recurring events require an explicit scope.
     #[tool(
         name = "calendar_delete",
         annotations(
@@ -137,7 +137,7 @@ impl MailMcpServer {
         Json(self.runtime.calendar_delete(input).await)
     }
 
-    /// Immediately cancels a referenced non-recurring organizer meeting.
+    /// Immediately cancels an organizer meeting; recurring events require an explicit scope.
     #[tool(
         name = "calendar_cancel",
         annotations(
@@ -155,7 +155,7 @@ impl MailMcpServer {
         Json(self.runtime.calendar_cancel(input).await)
     }
 
-    /// Immediately responds to a non-recurring Calendar event or actionable invitation mail.
+    /// Immediately responds to an event, a series, one occurrence, or actionable invitation mail.
     #[tool(
         name = "calendar_respond",
         annotations(

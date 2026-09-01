@@ -148,6 +148,11 @@ impl Runtime {
         let account_email = backend.account().email;
         let result = backend.fetch_calendar(&reference, body_limit).await;
         let event = self.account_result(&reference.account_id, result)?;
+        let event = super::calendar_series::response::for_read(
+            event,
+            reference.occurrence_start,
+            self.clock.now(),
+        )?;
         Ok((calendar_event(input.event_ref, &event, &account_email, body_limit), Vec::new()))
     }
 

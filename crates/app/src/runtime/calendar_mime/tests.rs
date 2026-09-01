@@ -122,6 +122,7 @@ fn event() -> anyhow::Result<CalendarApplication> {
         .single()
         .ok_or_else(|| anyhow::anyhow!("invalid fixture instant"))?;
     Ok(CalendarApplication {
+        properties: Default::default(),
         time_zone: "AAAA".into(),
         uid: "event-uid@example.invalid".into(),
         dt_stamp: starts_at,

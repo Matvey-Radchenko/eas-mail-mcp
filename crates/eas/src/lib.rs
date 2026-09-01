@@ -2,6 +2,8 @@
 
 #![deny(missing_docs)]
 
+mod calendar;
+mod calendar_projection;
 mod client;
 mod device;
 mod error;
@@ -12,6 +14,9 @@ mod query;
 mod transport;
 pub mod wbxml;
 
+pub use calendar::{
+    CalendarException, CalendarProperties, CalendarRecurrence, RecurrenceEnd, RecurrencePattern,
+};
 pub use client::{EasClient, NegotiatedPolicy, ServerCapabilities};
 pub use eas_mail_profile::IdentityMode;
 pub use error::{EasError, Result};

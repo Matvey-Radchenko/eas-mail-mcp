@@ -20,12 +20,18 @@ async fn all_calendar_lifecycle_tools_execute_expected_steps() -> anyhow::Result
         .and_then(|result| result.event_ref)
         .ok_or_else(|| anyhow::anyhow!("personal create returned no event_ref"))?;
     let deleted = runtime
-        .calendar_delete(CalendarDeleteInput { event_ref: personal_ref, idempotency_key: uuid(2) })
+        .calendar_delete(CalendarDeleteInput {
+            scope: None,
+            event_ref: personal_ref,
+            idempotency_key: uuid(2),
+        })
         .await;
     assert_eq!(deleted.data.map(|result| result.status), Some(CalendarOperationState::Succeeded));
 
     let update_ref = event_ref(&runtime, "planning").await?;
     let update = CalendarUpdateInput {
+        scope: None,
+        recurrence: None,
         event_ref: update_ref,
         subject: Some("Updated planning".into()),
         schedule: None,
@@ -52,6 +58,7 @@ async fn all_calendar_lifecycle_tools_execute_expected_steps() -> anyhow::Result
     let cancel_ref = event_ref(&runtime, "planning").await?;
     let cancelled = runtime
         .calendar_cancel(CalendarCancelInput {
+            scope: None,
             event_ref: cancel_ref,
             comment: "Cancelled for testing".into(),
             idempotency_key: uuid(4),
@@ -62,6 +69,7 @@ async fn all_calendar_lifecycle_tools_execute_expected_steps() -> anyhow::Result
     let respond_ref = event_ref(&runtime, "received").await?;
     let responded = runtime
         .calendar_respond(CalendarRespondInput {
+            scope: None,
             event_ref: respond_ref,
             response: CalendarResponseChoice::Accept,
             comment: "Accepted".into(),
@@ -92,6 +100,8 @@ async fn completed_update_replays_with_a_portable_reference_and_detects_conflict
     let backend = Arc::new(FakeBackend::new("work"));
     let (runtime, _directory, _) = make_runtime(backend.clone())?;
     let input = CalendarUpdateInput {
+        scope: None,
+        recurrence: None,
         event_ref: event_ref(&runtime, "planning").await?,
         subject: Some("Updated".into()),
         schedule: None,
@@ -137,6 +147,7 @@ async fn meeting_request_mail_ref_responds_through_search_long_id() -> anyhow::R
     assert!(summary.can_respond);
 
     let input = CalendarRespondInput {
+        scope: None,
         event_ref: summary.mail_ref,
         response: CalendarResponseChoice::Accept,
         comment: "Accepted from Inbox".into(),
@@ -193,6 +204,7 @@ async fn ordinary_mail_ref_is_rejected_before_journal_or_calendar_mutation() -> 
     assert_eq!(
         runtime
             .calendar_respond(CalendarRespondInput {
+                scope: None,
                 event_ref: summary.mail_ref,
                 response: CalendarResponseChoice::Accept,
                 comment: String::new(),
@@ -255,6 +267,8 @@ async fn recurrence_and_missing_capabilities_fail_before_mutation() -> anyhow::R
     let recurring = Arc::new(FakeBackend::new("work"));
     let (runtime, _directory, journal) = make_runtime(recurring.clone())?;
     let input = CalendarUpdateInput {
+        scope: None,
+        recurrence: None,
         event_ref: event_ref(&runtime, "recurring").await?,
         subject: Some("Forbidden".into()),
         schedule: None,
@@ -331,6 +345,7 @@ async fn event_ref(runtime: &Runtime, query: &str) -> anyhow::Result<String> {
 
 fn create_input(meeting: bool, idempotency_key: String) -> CalendarCreateInput {
     CalendarCreateInput {
+        recurrence: None,
         account_id: "work".into(),
         subject: "Stable release test".into(),
         schedule: CalendarScheduleInput::AllDay {

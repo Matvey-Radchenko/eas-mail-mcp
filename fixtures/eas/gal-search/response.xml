@@ -1,0 +1,1 @@
+<Search xmlns="Search"><Status>1</Status><Response><Store><Status>1</Status><Result><Properties><DisplayName xmlns="GAL">Alice</DisplayName><EmailAddress xmlns="GAL">alice@example.invalid</EmailAddress></Properties></Result><Range>0-0</Range><Total>1</Total></Store></Response></Search>

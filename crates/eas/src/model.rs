@@ -13,7 +13,7 @@ pub enum CollectionKind {
 }
 
 /// Field-presence marker used by partial EAS Change commands.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub enum Patch<T> {
     /// The server did not include this field.
     #[default]
@@ -130,8 +130,10 @@ pub struct MailFields {
 }
 
 /// Calendar fields with exact partial-update semantics.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub struct CalendarFields {
+    /// Lossless write metadata; absent only on legacy or partial projections.
+    pub properties: Option<crate::CalendarProperties>,
     /// Event subject.
     pub subject: Patch<String>,
     /// Event body converted later by the application layer.
@@ -175,7 +177,7 @@ pub struct CalendarFields {
 }
 
 /// One Calendar attendee parsed from or sent to Exchange.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CalendarAttendee {
     /// SMTP address.
     pub email: String,
@@ -190,6 +192,8 @@ pub struct CalendarAttendee {
 /// Complete non-recurring Calendar item used for Add and Change commands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CalendarApplication {
+    /// Recurrence, overrides and other preserved Calendar properties.
+    pub properties: crate::CalendarProperties,
     /// Base64-encoded 172-byte EAS timezone structure.
     pub time_zone: String,
     /// Stable iCalendar UID.

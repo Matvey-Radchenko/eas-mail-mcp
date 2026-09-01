@@ -2,11 +2,18 @@
 
 mod availability;
 mod calendar_mutation;
+mod calendar_properties;
+mod calendar_properties_write;
+mod calendar_recurrence;
+mod calendar_validation;
+pub use calendar_properties::exception_fields;
 mod compose;
 mod folders;
 mod global_object_id;
 mod items;
 mod meeting_response;
+pub use meeting_response::build_meeting_response_instance;
+mod people;
 mod policy;
 mod provision;
 mod sync;
@@ -27,6 +34,7 @@ pub use items::{
 pub use meeting_response::{
     build_meeting_response, build_meeting_response_long_id, parse_meeting_response,
 };
+pub use people::{DirectoryPage, DirectoryPerson, build_people_search, parse_people_search};
 pub use policy::{PolicyDecision, evaluate_policy};
 pub use provision::{
     ProvisionResult, build_initial_provision, build_policy_ack, build_wipe_ack, parse_provision,
