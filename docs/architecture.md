@@ -96,6 +96,15 @@ range, sorts it, and emits at most 100 compact summaries. No Calendar body or
 snapshot is retained. Compact results receive portable event references;
 `calendar_get` fetches one item through ItemOperations.
 
+`people_search` uses a single-account `Search/GAL` request, returning at most 50
+name/address pairs. It does not sync contacts, retain directory results, or
+query every account implicitly.
+
+Calendar recurrence and exceptions have a presence-aware internal model alongside
+the unchanged public map fields. Agenda references add the original occurrence
+start; get and mutation preparation resolve the master and apply that exception
+in Rust. Unsupported metadata blocks mutation rather than being dropped.
+
 Calendar lifecycle mutations resolve one referenced item through ItemOperations,
 then use Calendar `Sync/Add`, `Change`, or `Delete`. A collection SyncKey is
 initialized without requesting changes. If ItemOperations omits mutable IDs, a
@@ -107,6 +116,15 @@ do not auto-create tentative items from external invitations, mail Search and
 ItemOperations expose the request metadata and the opaque Search LongId is sent
 directly to MeetingResponse. Collection and request IDs are deliberately omitted
 on that protocol path.
+
+Recurring update/delete/cancel require `series`, `occurrence`, or `following`.
+Occurrence updates merge only explicit fields into an exception. A following
+update creates a new UID first, truncates the old series second, then sends
+notifications; it never uses `RANGE=THISANDFUTURE`. The new part does not inherit
+accepted responses. Following deletion/cancellation only truncates the old
+series. MeetingResponse supports an original InstanceId for occurrence replies.
+Recurring timed MIME carries RRULE, RECURRENCE-ID, EXDATE, and VTIMEZONE; all-day
+values retain DATE semantics. See [ADR 0004](adr/0004-recurring-calendar-and-directory.md).
 
 Every mail or calendar write takes a per-account advisory file lock shared by
 independent MCP and CLI processes. Runtime preparation validates write access,
@@ -136,15 +154,15 @@ All tool results use `data`, `error`, and `warnings`. One account may fail while
 another returns data. Mail limits are 100 records, 500-character previews,
 12,000 body characters by default, and 50,000 maximum. Availability accepts 20
 participants and 31 days, has 30-minute precision, and fails rather than
-truncating above 256 KiB. The contract exposes 13 read tools, four mail writes,
-and five non-recurring Calendar writes. All mutations require account opt-in and
+truncating above 256 KiB. The development contract exposes 14 read tools, four mail writes,
+and five Calendar writes. All mutations require account opt-in and
 durable idempotency state before the first external side effect. An explicit
 write-tool call validates and executes immediately; draft or review workflows
 remain in the agent and must not call the mutation tool.
 
 ## CLI contract
 
-The CLI exposes 21 account, folder, mail, and Calendar commands over the same
+The CLI exposes 22 account, folder, directory, mail, and Calendar commands over the same
 runtime methods. `sync_status` and `sync_now` remain MCP-only because their
 process-local synchronization state disappears at CLI exit. JSON envelopes go
 to stdout by default; human output is opt-in. Diagnostics, previews, prompts,

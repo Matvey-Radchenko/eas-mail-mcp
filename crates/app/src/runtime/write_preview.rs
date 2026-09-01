@@ -39,6 +39,11 @@ impl WritePreview {
         Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
     }
 
+    pub(super) fn append(mut self, other: Self) -> Self {
+        self.fields.extend(other.fields);
+        self
+    }
+
     pub(crate) fn render(&self) -> String {
         let mut lines = vec![
             format!("Operation: {}", literal(self.operation)),

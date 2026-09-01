@@ -263,6 +263,7 @@ fn calendar_application() -> anyhow::Result<CalendarApplication> {
         .single()
         .ok_or_else(|| anyhow::anyhow!("invalid Calendar fixture time"))?;
     Ok(CalendarApplication {
+        properties: Default::default(),
         time_zone: "AAAA".into(),
         uid: "uid-client".into(),
         dt_stamp: starts_at,

@@ -54,6 +54,7 @@ async fn calendar_comments_accept_fifty_thousand_characters_and_reject_more() ->
 
     let cancelled = runtime
         .calendar_cancel(CalendarCancelInput {
+            scope: None,
             event_ref: event_ref(&runtime, "planning").await?,
             comment: "x".repeat(50_000),
             idempotency_key: uuid(10),
@@ -62,6 +63,7 @@ async fn calendar_comments_accept_fifty_thousand_characters_and_reject_more() ->
     assert_eq!(cancelled.data.map(|value| value.status), Some(CalendarOperationState::Succeeded));
     let responded = runtime
         .calendar_respond(CalendarRespondInput {
+            scope: None,
             event_ref: event_ref(&runtime, "received").await?,
             response: CalendarResponseChoice::Tentative,
             comment: "x".repeat(50_000),
@@ -75,6 +77,7 @@ async fn calendar_comments_accept_fifty_thousand_characters_and_reject_more() ->
             uuid(12),
             runtime
                 .calendar_cancel(CalendarCancelInput {
+                    scope: None,
                     event_ref: "unused".into(),
                     comment: "x".repeat(50_001),
                     idempotency_key: uuid(12),
@@ -85,6 +88,7 @@ async fn calendar_comments_accept_fifty_thousand_characters_and_reject_more() ->
             uuid(13),
             runtime
                 .calendar_respond(CalendarRespondInput {
+                    scope: None,
                     event_ref: "unused".into(),
                     response: CalendarResponseChoice::Decline,
                     comment: "x".repeat(50_001),
@@ -137,6 +141,7 @@ async fn event_ref(runtime: &Runtime, query: &str) -> anyhow::Result<String> {
 
 fn create_input(idempotency_key: String) -> CalendarCreateInput {
     CalendarCreateInput {
+        recurrence: None,
         account_id: "work".into(),
         subject: "Calendar boundary test".into(),
         schedule: CalendarScheduleInput::AllDay {

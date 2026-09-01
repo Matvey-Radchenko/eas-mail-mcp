@@ -14,6 +14,7 @@ reference.
 | --- | --- |
 | Accounts | `account list` |
 | Folders | `folder list` |
+| People | `people search` |
 | Mail reads | `mail list`, `mail search`, `mail get`, `mail attachments`, `mail download` |
 | Mail writes | `mail mark-read`, `mail send`, `mail reply`, `mail forward` |
 | Calendar reads | `calendar availability`, `calendar find-slots`, `calendar search`, `calendar agenda`, `calendar get` |
@@ -130,6 +131,18 @@ eas-mail-mcp mail forward "$mail_ref" --to person@example.com --body "FYI"
 `--to`, `--cc`, and `--bcc` are repeatable. No shell-specific comma-list or
 array syntax is required.
 
+## People
+
+```bash
+eas-mail-mcp people search --account work --query "Alex" --limit 20
+eas-mail-mcp --human people search --account work --query alex@example.com
+```
+
+This is a bounded GAL Search, not an address-book export. The query is required;
+the default limit is 20 and the maximum is 50. Select one account explicitly
+when several are enabled. Results contain only `name` and `email`, with
+`results_truncated` when more matches exist.
+
 ## Calendar
 
 Availability and common-slot calculation accept repeatable participants and
@@ -202,7 +215,32 @@ eas-mail-mcp calendar cancel 'ref1.event...' --comment "Cancelled"
 eas-mail-mcp calendar respond 'ref1.event...' accept --comment "Accepted"
 ```
 
-Recurring series and individual occurrences remain read-only.
+### Recurring events (unreleased)
+
+```bash
+eas-mail-mcp calendar create \
+  --account work --subject "Weekly planning" \
+  --start 2026-09-07T10:00:00+02:00 --end 2026-09-07T11:00:00+02:00 \
+  --time-zone Europe/Belgrade \
+  --repeat weekly --repeat-weekday mon --repeat-count 6
+
+eas-mail-mcp calendar update "$occurrence_ref" --scope occurrence --location "Room 4"
+eas-mail-mcp calendar update "$occurrence_ref" --scope following --subject "New series"
+eas-mail-mcp calendar delete "$personal_series_ref" --scope series
+eas-mail-mcp calendar cancel "$meeting_ref" --scope series
+eas-mail-mcp calendar respond "$occurrence_ref" accept --scope occurrence
+```
+
+`--repeat` accepts `daily`, `weekly`, `monthly`, or `yearly`. Other selectors are
+`--repeat-interval`, repeatable `--repeat-weekday`, `--repeat-day`,
+`--repeat-week` (1-4 or 5 for last), and `--repeat-month`. Choose exactly one ending:
+`--repeat-count`, `--repeat-until YYYY-MM-DD`, or `--repeat-forever`.
+The same selectors work with all-day schedule flags and `calendar update`.
+
+Recurring writes require `--scope series|occurrence|following`; responses only
+accept `series|occurrence`. Obtain an occurrence reference from `calendar agenda`
+before targeting one occurrence or the remaining tail. Text search returns the
+master reference. See [recurrence semantics and JSON examples](calendar-series.md).
 
 ## Portable references
 
@@ -210,6 +248,11 @@ Mail, event, and attachment references use the versioned form
 `ref1.<kind>.<base64url-json>`. They contain only the local account ID and the
 minimum Exchange locator needed to fetch the item. They do not contain a body,
 subject, recipients, password, or other credential.
+
+An agenda occurrence also carries its original UTC start. Moving that occurrence
+does not change this identity. Removing it, truncating its old series, or changing
+the pattern can make an old reference stale. Old references without an occurrence
+identifier remain valid master references.
 
 References are intentionally opaque: store or pass the complete string without
 decoding or editing it. They are not HMAC-signed and have no local TTL because

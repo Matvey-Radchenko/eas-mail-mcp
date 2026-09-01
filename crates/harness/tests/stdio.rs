@@ -10,8 +10,9 @@ use rmcp::service::{Peer, RoleClient};
 use rmcp::transport::{ConfigureCommandExt as _, TokioChildProcess};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 22] = [
+const TOOLS: [&str; 23] = [
     "accounts_list",
+    "people_search",
     "folders_list",
     "sync_status",
     "sync_now",
@@ -63,6 +64,7 @@ async fn black_box_server_exposes_and_executes_every_tool() -> Result<()> {
     anyhow::ensure!(invalid.is_error == Some(true), "invalid input did not fail schema validation");
 
     call(&peer, "accounts_list", None).await?;
+    call(&peer, "people_search", Some(json!({"query":"Test", "limit":1}))).await?;
     call(&peer, "folders_list", Some(json!({}))).await?;
     call(&peer, "sync_status", Some(json!({}))).await?;
     call(&peer, "sync_now", Some(json!({}))).await?;

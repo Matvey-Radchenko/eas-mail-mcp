@@ -41,6 +41,7 @@ impl EasMailbox {
         let events = events
             .into_iter()
             .map(|((collection_id, server_id), fields)| BackendEvent {
+                occurrence_start: None,
                 account_id: self.account.account_id.clone(),
                 long_id: String::new(),
                 collection_id: Some(collection_id),

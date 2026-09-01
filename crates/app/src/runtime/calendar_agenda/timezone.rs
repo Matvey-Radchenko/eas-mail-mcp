@@ -7,13 +7,13 @@ use crate::{AppError, ErrorCode, Result};
 const TIME_ZONE_BYTES: usize = 172;
 const MAX_OFFSET_MINUTES: i32 = 24 * 60;
 
-pub(super) enum EventTimeZone {
+pub(in crate::runtime) enum EventTimeZone {
     Eas(EasTimeZone),
     Iana(Tz),
 }
 
 impl EventTimeZone {
-    pub(super) fn parse(encoded: Option<&str>, fallback: Tz) -> Result<Self> {
+    pub(in crate::runtime) fn parse(encoded: Option<&str>, fallback: Tz) -> Result<Self> {
         let Some(encoded) = encoded.filter(|value| !value.is_empty()) else {
             return Ok(Self::Iana(fallback));
         };
@@ -23,14 +23,72 @@ impl EventTimeZone {
         Ok(Self::Eas(EasTimeZone::parse(&bytes)?))
     }
 
-    pub(super) fn to_local(&self, value: DateTime<Utc>) -> Result<NaiveDateTime> {
+    pub(in crate::runtime) fn icalendar(
+        &self,
+        id: &str,
+        year: i32,
+    ) -> Result<icalendar::CalendarComponent> {
+        use icalendar::{Property, parser::Component};
+        let Self::Eas(zone) = self else {
+            return Err(protocol("Calendar notification requires an EAS timezone"));
+        };
+        let mut output =
+            Component { name: "VTIMEZONE".into(), properties: Vec::new(), components: Vec::new() };
+        push_property(&mut output, Property::new("TZID", id));
+        for (name, rule, from, to) in [
+            ("STANDARD", zone.standard_transition, zone.daylight_offset, zone.standard_offset),
+            ("DAYLIGHT", zone.daylight_transition, zone.standard_offset, zone.daylight_offset),
+        ] {
+            if name == "DAYLIGHT" && rule.is_none() {
+                continue;
+            }
+            let mut child =
+                Component { name: name.into(), properties: Vec::new(), components: Vec::new() };
+            let start = if let Some(rule) = rule {
+                rule.in_year(year)?
+            } else {
+                NaiveDate::from_ymd_opt(year, 1, 1)
+                    .and_then(|date| date.and_hms_opt(0, 0, 0))
+                    .ok_or_else(|| protocol("Calendar timezone year is invalid"))?
+            };
+            push_property(
+                &mut child,
+                Property::new("DTSTART", start.format("%Y%m%dT%H%M%S").to_string()),
+            );
+            push_property(
+                &mut child,
+                Property::new("TZOFFSETFROM", ical_offset(if rule.is_none() { to } else { from })),
+            );
+            push_property(&mut child, Property::new("TZOFFSETTO", ical_offset(to)));
+            if let Some(rule) = rule {
+                let ordinal = if rule.week == 5 { -1 } else { i64::from(rule.week) };
+                let weekday = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"]
+                    .get(
+                        usize::try_from(rule.weekday_from_sunday)
+                            .map_err(|_| protocol("invalid weekday"))?,
+                    )
+                    .ok_or_else(|| protocol("invalid weekday"))?;
+                push_property(
+                    &mut child,
+                    Property::new(
+                        "RRULE",
+                        format!("FREQ=YEARLY;BYMONTH={};BYDAY={ordinal}{weekday}", rule.month),
+                    ),
+                );
+            }
+            output.components.push(child);
+        }
+        Ok(output.into())
+    }
+
+    pub(in crate::runtime) fn to_local(&self, value: DateTime<Utc>) -> Result<NaiveDateTime> {
         match self {
             Self::Eas(zone) => zone.to_local(value),
             Self::Iana(zone) => Ok(value.with_timezone(zone).naive_local()),
         }
     }
 
-    pub(super) fn to_utc(&self, value: NaiveDateTime) -> Result<DateTime<Utc>> {
+    pub(in crate::runtime) fn to_utc(&self, value: NaiveDateTime) -> Result<DateTime<Utc>> {
         match self {
             Self::Eas(zone) => zone.to_utc(value),
             Self::Iana(zone) => super::local_to_utc(*zone, value),
@@ -38,7 +96,7 @@ impl EventTimeZone {
     }
 }
 
-pub(super) struct EasTimeZone {
+pub(in crate::runtime) struct EasTimeZone {
     standard_offset: i32,
     daylight_offset: i32,
     standard_transition: Option<TransitionRule>,
@@ -73,15 +131,21 @@ impl EasTimeZone {
     }
 
     fn to_utc(&self, value: NaiveDateTime) -> Result<DateTime<Utc>> {
-        let offset = if self.is_daylight_local(value)? {
-            self.daylight_offset
-        } else {
-            self.standard_offset
-        };
-        let utc = value
-            .checked_sub_signed(Duration::seconds(i64::from(offset)))
-            .ok_or_else(|| protocol("Calendar timezone conversion overflowed"))?;
-        Ok(DateTime::from_naive_utc_and_offset(utc, Utc))
+        let mut candidates = Vec::new();
+        for offset in [self.standard_offset, self.daylight_offset] {
+            let naive = value
+                .checked_sub_signed(Duration::seconds(i64::from(offset)))
+                .ok_or_else(|| protocol("Calendar timezone conversion overflowed"))?;
+            let instant = DateTime::from_naive_utc_and_offset(naive, Utc);
+            if self.to_local(instant)? == value && !candidates.contains(&instant) {
+                candidates.push(instant);
+            }
+        }
+        match candidates.as_slice() {
+            [instant] => Ok(*instant),
+            [] => Err(protocol("Calendar local time does not exist")),
+            _ => Err(protocol("Calendar local time is ambiguous")),
+        }
     }
 
     fn is_daylight_utc(&self, value: DateTime<Utc>) -> Result<bool> {
@@ -101,22 +165,6 @@ impl EasTimeZone {
             .checked_sub_signed(Duration::seconds(i64::from(self.daylight_offset)))
             .ok_or_else(|| protocol("Calendar DST transition overflowed"))?;
         let value = value.naive_utc();
-        Ok(if daylight < standard {
-            value >= daylight && value < standard
-        } else {
-            value >= daylight || value < standard
-        })
-    }
-
-    fn is_daylight_local(&self, value: NaiveDateTime) -> Result<bool> {
-        let Some(daylight) = self.daylight_transition else {
-            return Ok(false);
-        };
-        let standard = self
-            .standard_transition
-            .ok_or_else(|| protocol("Calendar timezone has no standard transition"))?;
-        let daylight = daylight.in_year(value.year())?;
-        let standard = standard.in_year(value.year())?;
         Ok(if daylight < standard {
             value >= daylight && value < standard
         } else {
@@ -184,6 +232,19 @@ impl TransitionRule {
         date.and_hms_milli_opt(self.hour, self.minute, self.second, self.millisecond)
             .ok_or_else(|| protocol("Calendar DST transition time is invalid"))
     }
+}
+
+fn push_property(
+    component: &mut icalendar::parser::Component<'static>,
+    property: icalendar::Property,
+) {
+    component.properties.push(property.into());
+}
+
+fn ical_offset(seconds: i32) -> String {
+    let sign = if seconds < 0 { "-" } else { "+" };
+    let seconds = seconds.unsigned_abs();
+    format!("{sign}{:02}{:02}", seconds / 3600, (seconds % 3600) / 60)
 }
 
 fn offset(bias: i32, seasonal_bias: i32) -> Result<i32> {

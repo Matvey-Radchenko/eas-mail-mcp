@@ -30,8 +30,8 @@ pub(super) fn build(
     comment: &str,
 ) -> Result<Vec<u8>> {
     validate_mailbox(sender)?;
-    if recipients.is_empty() {
-        return Err(validation("calendar notification has no recipients"));
+    if recipients.is_empty() || recipients.len() > 100 {
+        return Err(validation("calendar notification requires 1-100 recipients"));
     }
     for recipient in recipients {
         validate_mailbox(&recipient.email)?;
@@ -83,6 +83,63 @@ fn calendar(
     all_day_dates: Option<(NaiveDate, NaiveDate)>,
     method: CalendarMessageMethod,
 ) -> Result<String> {
+    let mut calendar = Calendar::empty();
+    calendar
+        .append_property(Property::new("PRODID", "-//EAS Mail MCP//EN"))
+        .append_property(Property::new("VERSION", "2.0"))
+        .append_property(Property::new("CALSCALE", "GREGORIAN"))
+        .append_property(Property::new("METHOD", method_name(method)));
+    let attendees = notification_attendees(item, recipients, method);
+    if !matches!(method, CalendarMessageMethod::Cancel) || !attendees.is_empty() {
+        calendar.push(event(sender, &attendees, item, all_day_dates, method)?);
+    }
+    super::calendar_mime_series::timezone(&mut calendar, item)?;
+    for exception in item.properties.exceptions.iter().filter(|value| !value.deleted) {
+        let occurrence = super::calendar_series::selected(item, exception.original_start)?;
+        let prepared = super::calendar_series::prepared(occurrence)?;
+        let attendees = notification_attendees(&prepared.mutation.application, recipients, method);
+        if matches!(method, CalendarMessageMethod::Cancel) && attendees.is_empty() {
+            continue;
+        }
+        calendar.push(event(
+            sender,
+            &attendees,
+            &prepared.mutation.application,
+            prepared.all_day_dates,
+            method,
+        )?);
+    }
+    Ok(calendar.to_string())
+}
+
+fn notification_attendees(
+    item: &CalendarApplication,
+    recipients: &[CalendarAttendee],
+    method: CalendarMessageMethod,
+) -> Vec<CalendarAttendee> {
+    match method {
+        CalendarMessageMethod::Reply(_) => recipients.to_vec(),
+        CalendarMessageMethod::Request => item.attendees.clone(),
+        CalendarMessageMethod::Cancel => item
+            .attendees
+            .iter()
+            .filter(|attendee| {
+                recipients
+                    .iter()
+                    .any(|recipient| recipient.email.eq_ignore_ascii_case(&attendee.email))
+            })
+            .cloned()
+            .collect(),
+    }
+}
+
+fn event(
+    sender: &str,
+    recipients: &[CalendarAttendee],
+    item: &CalendarApplication,
+    all_day_dates: Option<(NaiveDate, NaiveDate)>,
+    method: CalendarMessageMethod,
+) -> Result<Event> {
     let mut event = Event::new();
     event
         .uid(&item.uid)
@@ -90,11 +147,7 @@ fn calendar(
         .summary(&item.subject)
         .description(&item.body)
         .location(&item.location);
-    if let Some((start, end)) = all_day_dates {
-        event.starts(start).ends(end);
-    } else {
-        event.starts(item.starts_at).ends(item.ends_at);
-    }
+    super::calendar_mime_series::schedule(&mut event, item, all_day_dates)?;
     let organizer = match method {
         CalendarMessageMethod::Reply(_) => recipients
             .first()
@@ -133,14 +186,7 @@ fn calendar(
     } else {
         icalendar::EventStatus::Confirmed
     });
-    let mut calendar = Calendar::empty();
-    calendar
-        .append_property(Property::new("PRODID", "-//EAS Mail MCP//EN"))
-        .append_property(Property::new("VERSION", "2.0"))
-        .append_property(Property::new("CALSCALE", "GREGORIAN"))
-        .append_property(Property::new("METHOD", method_name(method)))
-        .push(event);
-    Ok(calendar.to_string())
+    Ok(event)
 }
 
 const fn method_name(method: CalendarMessageMethod) -> &'static str {
@@ -208,5 +254,8 @@ fn validation(message: &'static str) -> AppError {
     AppError::new(ErrorCode::ValidationFailed, message)
 }
 
+#[cfg(test)]
+#[path = "calendar_mime/series_tests.rs"]
+mod series_tests;
 #[cfg(test)]
 mod tests;

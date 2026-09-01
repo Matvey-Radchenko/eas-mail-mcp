@@ -1,4 +1,4 @@
-mod pattern;
+pub(in crate::runtime) mod pattern;
 
 use std::collections::BTreeMap;
 
@@ -133,6 +133,7 @@ fn occurrence(
         return Ok(None);
     }
     let mut event = source.clone();
+    event.occurrence_start = Some(start);
     let duration = end.signed_duration_since(start);
     let start = exception.and_then(|value| value.start).unwrap_or(start);
     let end = exception.and_then(|value| value.end).unwrap_or(start + duration);
@@ -141,6 +142,16 @@ fn occurrence(
     }
     event.fields.starts_at = Patch::Value(Some(start));
     event.fields.ends_at = Patch::Value(Some(end));
+    if let Some(properties) = &source.fields.properties
+        && let Some(value) = properties
+            .exceptions
+            .iter()
+            .find(|value| Some(value.original_start) == event.occurrence_start)
+    {
+        apply_patch(&mut event.fields.attendees, &value.fields.attendees);
+        apply_patch(&mut event.fields.busy_status, &value.fields.busy_status);
+        apply_patch(&mut event.fields.response_type, &value.fields.response_type);
+    }
     if let Some(exception) = exception {
         apply_optional(&mut event.fields.subject, exception.subject.as_ref());
         apply_optional(&mut event.fields.location, exception.location.as_ref());
@@ -218,6 +229,12 @@ fn string(patch: &Patch<String>) -> Option<&str> {
 
 fn apply_optional(target: &mut Patch<String>, value: Option<&String>) {
     if let Some(value) = value {
+        *target = Patch::Value(value.clone());
+    }
+}
+
+fn apply_patch<T: Clone>(target: &mut Patch<T>, patch: &Patch<T>) {
+    if let Patch::Value(value) = patch {
         *target = Patch::Value(value.clone());
     }
 }

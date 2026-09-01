@@ -34,7 +34,7 @@ fn runtime() -> eas_mail_mcp::Result<Runtime> {
         )
     })?;
     let backends: Vec<Arc<dyn AccountBackend>> =
-        vec![Arc::new(FakeBackend::new("example").with_mail_count(250))];
+        vec![Arc::new(FakeBackend::new("example").with_mail_count(250).with_series_fixture())];
     let journal: Arc<dyn OperationJournal> = Arc::new(SqliteJournal::open(&state.join("journal"))?);
     let clock: Arc<dyn Clock> = Arc::new(FixedClock::new(now));
     let ids: Arc<dyn IdGenerator> = Arc::new(SequenceIds::default());

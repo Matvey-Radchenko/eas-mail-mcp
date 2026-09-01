@@ -4,6 +4,8 @@ use serde_json::Value;
 
 #[path = "cli/support.rs"]
 mod cli_support;
+#[path = "cli/series.rs"]
+mod series;
 
 use self::cli_support::{
     event_ref, human_success, json_success, parse, run, run_stdin, string_at, strings, text, uuid,

@@ -1,7 +1,7 @@
 use eas_mail_protocol::CalendarAttendee;
 
 use super::Runtime;
-use super::calendar_prepare::{self, EventOwnership, PreparedEvent, PreparedUpdate};
+use super::calendar_prepare::{self, EventOwnership, PreparedEvent};
 use super::calendar_response_prepare;
 use super::calendar_write_result;
 use super::calendar_write_support::operation_uid;
@@ -37,72 +37,26 @@ impl Runtime {
         &self,
         input: &CalendarUpdateInput,
     ) -> Result<PreparedWrite<CalendarOperationResult>> {
-        if let Some(record) = self.replay_write("calendar_update", &input.idempotency_key, input)? {
-            return Ok(PreparedWrite::Replay(calendar_write_result::existing(record)));
-        }
-        let reference = self.references.event(&input.event_ref)?;
-        let backend = self.require_write(&reference.account_id)?;
-        let account = backend.account();
-        let source = self.account_result(
-            &reference.account_id,
-            backend.resolve_calendar_source(&reference).await,
-        )?;
-        let old = calendar_prepare::existing(&source, self.clock.now())?;
-        let prepared = calendar_prepare::update(input, &source, self.clock.now(), &account.email)?;
-        let meeting = !old.mutation.application.attendees.is_empty()
-            || !prepared.event.mutation.application.attendees.is_empty();
-        self.require_calendar_capabilities(&backend, meeting).await?;
-        Ok(PreparedWrite::Ready(update_preview(&reference.account_id, &prepared)))
+        self.prepare_calendar_edit(super::calendar_series::edit::EditInput::Update(Box::new(
+            input.clone(),
+        )))
+        .await
     }
 
     pub(crate) async fn prepare_cli_calendar_delete(
         &self,
         input: &CalendarDeleteInput,
     ) -> Result<PreparedWrite<CalendarOperationResult>> {
-        if let Some(record) = self.replay_write("calendar_delete", &input.idempotency_key, input)? {
-            return Ok(PreparedWrite::Replay(calendar_write_result::existing(record)));
-        }
-        let reference = self.references.event(&input.event_ref)?;
-        let backend = self.require_write(&reference.account_id)?;
-        let account = backend.account();
-        let source = self.account_result(
-            &reference.account_id,
-            backend.resolve_calendar_source(&reference).await,
-        )?;
-        calendar_prepare::require_non_recurring(&source)?;
-        if calendar_prepare::ownership(&source, &account.email) != EventOwnership::Personal {
-            return Err(validation("calendar_delete requires a personal event"));
-        }
-        self.require_calendar_capabilities(&backend, false).await?;
-        let prepared = calendar_prepare::existing(&source, self.clock.now())?;
-        Ok(PreparedWrite::Ready(event_preview("calendar_delete", &reference.account_id, &prepared)))
+        self.prepare_calendar_edit(super::calendar_series::edit::EditInput::Delete(input.clone()))
+            .await
     }
 
     pub(crate) async fn prepare_cli_calendar_cancel(
         &self,
         input: &CalendarCancelInput,
     ) -> Result<PreparedWrite<CalendarOperationResult>> {
-        if let Some(record) = self.replay_write("calendar_cancel", &input.idempotency_key, input)? {
-            return Ok(PreparedWrite::Replay(calendar_write_result::existing(record)));
-        }
-        calendar_prepare::validate_comment(&input.comment)?;
-        let reference = self.references.event(&input.event_ref)?;
-        let backend = self.require_write(&reference.account_id)?;
-        let account = backend.account();
-        let source = self.account_result(
-            &reference.account_id,
-            backend.resolve_calendar_source(&reference).await,
-        )?;
-        calendar_prepare::require_non_recurring(&source)?;
-        if calendar_prepare::ownership(&source, &account.email) != EventOwnership::Organizer {
-            return Err(validation("calendar_cancel requires an organizer meeting"));
-        }
-        self.require_calendar_capabilities(&backend, true).await?;
-        let prepared = calendar_prepare::existing(&source, self.clock.now())?;
-        Ok(PreparedWrite::Ready(
-            event_preview("calendar_cancel", &reference.account_id, &prepared)
-                .field("Comment", &input.comment),
-        ))
+        self.prepare_calendar_edit(super::calendar_series::edit::EditInput::Cancel(input.clone()))
+            .await
     }
 
     pub(crate) async fn prepare_cli_calendar_respond(
@@ -132,17 +86,20 @@ impl Runtime {
     ) -> Result<WritePreview> {
         let backend = self.require_write(&reference.account_id)?;
         let account = backend.account();
-        let source = self.account_result(
+        let mut source = self.account_result(
             &reference.account_id,
             backend.resolve_calendar_source(&reference).await,
         )?;
-        calendar_prepare::require_non_recurring(&source)?;
+        source.occurrence_start = reference.occurrence_start;
+        let revision = super::calendar_series::revision(&source)?;
         if calendar_prepare::ownership(&source, &account.email) != EventOwnership::Attendee {
             return Err(validation("calendar_respond requires a received meeting"));
         }
         self.require_calendar_capabilities(&backend, true).await?;
-        let prepared = calendar_prepare::existing(&source, self.clock.now())?;
-        Ok(response_preview(&reference.account_id, &prepared, input))
+        let prepared =
+            super::calendar_series::response::prepare(&mut source, input, self.clock.now())?;
+        Ok(response_preview(&reference.account_id, &prepared, input)
+            .field("Current revision", revision))
     }
 
     async fn prepare_mail_response(
@@ -156,15 +113,12 @@ impl Runtime {
             &reference.account_id,
             backend.fetch_mail(&reference.source, 50_000).await,
         )?;
+        if input.scope.is_some_and(|scope| scope != crate::model::CalendarScope::Series) {
+            return Err(validation("occurrence responses require a calendar occurrence reference"));
+        }
         let prepared = calendar_response_prepare::prepare(&mail, self.clock.now())?;
         Ok(response_preview(&reference.account_id, &prepared.event, input))
     }
-}
-
-pub(super) fn update_preview(account_id: &str, prepared: &PreparedUpdate) -> WritePreview {
-    let removed = attendee_list(&prepared.removed_attendees);
-    event_preview("calendar_update", account_id, &prepared.event)
-        .field("Removed attendees", removed)
 }
 
 pub(super) fn response_preview(
@@ -193,9 +147,18 @@ pub(super) fn event_preview(
         .field("Reminder minutes", reminder(event.reminder_minutes))
         .field("Attendees", attendee_list(&event.attendees))
         .field("Body", &event.body)
+        .field(
+            "Recurrence",
+            super::calendar_series::preview::recurrence(event.properties.recurrence.as_ref()),
+        )
+        .field("Exceptions", event.properties.exceptions.len().to_string())
+        .field(
+            "Original occurrence",
+            event.properties.instance_start.map(|value| value.to_rfc3339()).unwrap_or_default(),
+        )
 }
 
-fn attendee_list(values: &[CalendarAttendee]) -> String {
+pub(super) fn attendee_list(values: &[CalendarAttendee]) -> String {
     values
         .iter()
         .map(|value| {

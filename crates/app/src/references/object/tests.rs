@@ -17,6 +17,7 @@ fn every_reference_kind_round_trips_without_content() -> Result<()> {
     assert!(!decoded_json(&encoded_mail)?.contains("subject"));
 
     let event = BackendEvent {
+        occurrence_start: None,
         account_id: "work".into(),
         long_id: "long-1".into(),
         collection_id: Some("calendar".into()),
@@ -48,6 +49,7 @@ fn long_id_and_meeting_kinds_round_trip() -> Result<()> {
     assert!(matches!(decode_meeting(&mail_ref)?, MeetingReference::Mail(_)));
 
     let event = BackendEvent {
+        occurrence_start: None,
         account_id: "work".into(),
         long_id: String::new(),
         collection_id: Some("calendar".into()),
@@ -102,6 +104,31 @@ fn unknown_json_fields_and_incomplete_event_locators_are_rejected() -> Result<()
         r#"{"account_id":"work","long_id":"","collection_id":"calendar","server_id":null}"#,
     );
     assert!(decode_event(&incomplete).is_err());
+    Ok(())
+}
+
+#[test]
+fn occurrence_references_keep_original_start_and_reject_invalid_timestamps() -> Result<()> {
+    let legacy = r#"{"account_id":"work","long_id":"id","collection_id":null,"server_id":null}"#;
+    let mut event = decode_event(&encoded("event", legacy))?;
+    assert_eq!(event.occurrence_start, None);
+    let original = chrono::DateTime::parse_from_rfc3339("2026-03-08T13:00:00Z")
+        .map_err(|_| invalid())?
+        .with_timezone(&chrono::Utc);
+    event.occurrence_start = Some(original);
+    let reference = encode_event(event.clone())?;
+    assert_eq!(decode_event(&reference)?, event);
+    let payload: serde_json::Value =
+        serde_json::from_str(&decoded_json(&reference)?).map_err(|_| invalid())?;
+    assert_eq!(
+        payload.get("occurrence_start").and_then(serde_json::Value::as_str),
+        Some("2026-03-08T13:00:00Z")
+    );
+    for timestamp in ["bad", "2026-03-08T13:00:00.001Z", "+10000-01-01T00:00:00Z"] {
+        let mut malformed = payload.clone();
+        *malformed.get_mut("occurrence_start").ok_or_else(invalid)? = timestamp.into();
+        assert!(decode_event(&encoded("event", &malformed.to_string())).is_err());
+    }
     Ok(())
 }
 

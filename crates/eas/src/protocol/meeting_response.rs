@@ -9,6 +9,16 @@ pub fn build_meeting_response(
     request_id: &str,
     response: MeetingResponseChoice,
 ) -> Result<Vec<u8>> {
+    build_meeting_response_instance(collection_id, request_id, response, None)
+}
+
+/// Builds a response to a master or its original Calendar occurrence.
+pub fn build_meeting_response_instance(
+    collection_id: &str,
+    request_id: &str,
+    response: MeetingResponseChoice,
+    original: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<Vec<u8>> {
     if collection_id.is_empty() || request_id.is_empty() {
         return Err(EasError::InvalidConfiguration(
             "MeetingResponse requires collection and request identifiers".into(),
@@ -19,6 +29,14 @@ pub fn build_meeting_response(
     push_text(&mut request, "MeetingResponse", "UserResponse", response.code().to_string());
     push_text(&mut request, "MeetingResponse", "CollectionId", collection_id);
     push_text(&mut request, "MeetingResponse", "RequestId", request_id);
+    if let Some(original) = original {
+        push_text(
+            &mut request,
+            "MeetingResponse",
+            "InstanceId",
+            original.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        );
+    }
     root.push(request);
     encode(&root)
 }

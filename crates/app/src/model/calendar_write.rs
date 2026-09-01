@@ -64,10 +64,13 @@ pub enum CalendarScheduleInput {
     },
 }
 
-/// Input for creating one non-recurring event or meeting.
+/// Input for creating a personal event or meeting, optionally recurring.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CalendarCreateInput {
+    /// Optional repeat rule; omitted for a one-off event.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recurrence: Option<super::CalendarRecurrenceInput>,
     /// Owning account ID.
     pub account_id: String,
     /// Event subject.
@@ -95,10 +98,16 @@ pub struct CalendarCreateInput {
     pub idempotency_key: String,
 }
 
-/// Patch input for one non-recurring event or organizer meeting.
+/// Patch input for a personal event or organizer meeting with an explicit recurring scope.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CalendarUpdateInput {
+    /// Required for recurring events; omitted preserves one-off behavior.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<super::CalendarScope>,
+    /// Replacement repeat rule for series or following; omitted preserves it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recurrence: Option<super::CalendarRecurrenceInput>,
     /// Process-local reference returned by Calendar Search or create.
     pub event_ref: String,
     /// Replacement subject; an empty value is rejected.
@@ -129,6 +138,9 @@ pub struct CalendarUpdateInput {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CalendarDeleteInput {
+    /// Required for recurring events.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<super::CalendarScope>,
     /// Process-local event reference.
     pub event_ref: String,
     /// UUID used for operation idempotency.
@@ -139,6 +151,9 @@ pub struct CalendarDeleteInput {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CalendarCancelInput {
+    /// Required for recurring meetings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<super::CalendarScope>,
     /// Process-local event reference.
     pub event_ref: String,
     /// Optional plain-text cancellation comment.
@@ -165,6 +180,9 @@ pub enum CalendarResponseChoice {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CalendarRespondInput {
+    /// Required for recurring meetings; following is not supported for responses.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<super::CalendarScope>,
     /// Process-local Calendar event or actionable meeting-request mail reference.
     pub event_ref: String,
     /// Accept, tentatively accept, or decline.

@@ -54,6 +54,11 @@ enum Command {
         #[command(subcommand)]
         command: operations::FolderCommand,
     },
+    /// Search a server directory.
+    People {
+        #[command(subcommand)]
+        command: operations::PeopleCommand,
+    },
     /// Read and manage mail.
     Mail {
         #[command(subcommand)]
@@ -62,7 +67,7 @@ enum Command {
     /// Read and manage Calendar data.
     Calendar {
         #[command(subcommand)]
-        command: operations::CalendarCommand,
+        command: Box<operations::CalendarCommand>,
     },
     /// Run redacted configuration and live EAS diagnostics.
     Doctor,
@@ -342,8 +347,9 @@ pub async fn run_with_runtime(runtime: Arc<Runtime>) -> Result<CliExit> {
     match command {
         Command::Account { command: AccountCommand::List } => operations::accounts(&runtime, mode),
         Command::Folder { command } => operations::folders(&runtime, command, mode).await,
+        Command::People { command } => operations::people(&runtime, command, mode).await,
         Command::Mail { command } => operations::mail(&runtime, command, mode).await,
-        Command::Calendar { command } => operations::calendar(&runtime, command, mode).await,
+        Command::Calendar { command } => operations::calendar(&runtime, *command, mode).await,
         _ => Err(AppError::new(
             ErrorCode::ValidationFailed,
             "the injected runtime accepts only operational account, folder, mail, and calendar commands",
@@ -408,9 +414,13 @@ async fn run_production(cli: Cli) -> Result<CliExit> {
             let runtime = production_runtime(&paths)?;
             operations::mail(&runtime, command, output_mode).await
         }
+        Command::People { command } => {
+            let runtime = production_runtime(&paths)?;
+            operations::people(&runtime, command, output_mode).await
+        }
         Command::Calendar { command } => {
             let runtime = production_runtime(&paths)?;
-            operations::calendar(&runtime, command, output_mode).await
+            operations::calendar(&runtime, *command, output_mode).await
         }
         Command::Doctor => {
             let profiles = load_profile_registry(&paths.profiles)?;

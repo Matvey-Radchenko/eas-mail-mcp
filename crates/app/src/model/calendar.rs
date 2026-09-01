@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use super::{CalendarAttendeeStatus, CalendarAttendeeView, CalendarBusyStatus, CalendarEventType};
 
 /// Weekday used by explicit scheduling windows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum ScheduleWeekday {
     /// Monday.

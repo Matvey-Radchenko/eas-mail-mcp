@@ -3,7 +3,7 @@ use crate::{CalendarApplication, EasError, MutationResult, Result};
 
 use super::tree::{direct_text, element, integer, push_text};
 
-/// Builds a Calendar Sync/Add command for one non-recurring item.
+/// Builds a Calendar Sync/Add command for one item, including supported recurrence and exceptions.
 pub fn build_calendar_add(
     collection_id: &str,
     sync_key: &str,
@@ -91,7 +91,7 @@ fn build_calendar_mutation(
     let mut mutation = element("AirSync", name);
     push_text(&mut mutation, "AirSync", identifier_name, identifier);
     if let Some(item) = item {
-        mutation.push(application_data(item));
+        mutation.push(application_data(item)?);
     }
     commands.push(mutation);
     collection.push(commands);
@@ -100,7 +100,7 @@ fn build_calendar_mutation(
     encode(&root)
 }
 
-fn application_data(item: &CalendarApplication) -> crate::wbxml::Element {
+fn application_data(item: &CalendarApplication) -> Result<crate::wbxml::Element> {
     let mut application = element("AirSync", "ApplicationData");
     push_text(&mut application, "Calendar", "TimeZone", &item.time_zone);
     push_text(&mut application, "Calendar", "AllDayEvent", if item.all_day { "1" } else { "0" });
@@ -112,7 +112,7 @@ fn application_data(item: &CalendarApplication) -> crate::wbxml::Element {
     if let Some(reminder) = item.reminder_minutes {
         push_text(&mut application, "Calendar", "Reminder", reminder.to_string());
     }
-    push_text(&mut application, "Calendar", "Sensitivity", "0");
+    super::calendar_properties_write::append(&mut application, &item.properties)?;
     push_text(&mut application, "Calendar", "Subject", &item.subject);
     push_text(&mut application, "Calendar", "UID", &item.uid);
     push_text(&mut application, "Calendar", "MeetingStatus", item.meeting_status.to_string());
@@ -122,19 +122,17 @@ fn application_data(item: &CalendarApplication) -> crate::wbxml::Element {
         "ResponseRequested",
         if item.response_requested { "1" } else { "0" },
     );
-    if !item.attendees.is_empty() {
-        application.push(attendees(item));
-    }
+    application.push(attendees(&item.attendees));
     let mut body = element("AirSyncBase", "Body");
     push_text(&mut body, "AirSyncBase", "Type", "1");
     push_text(&mut body, "AirSyncBase", "Data", &item.body);
     application.push(body);
-    application
+    Ok(application)
 }
 
-fn attendees(item: &CalendarApplication) -> crate::wbxml::Element {
+pub(super) fn attendees(values: &[crate::CalendarAttendee]) -> crate::wbxml::Element {
     let mut container = element("Calendar", "Attendees");
-    for value in &item.attendees {
+    for value in values {
         let mut attendee = element("Calendar", "Attendee");
         push_text(&mut attendee, "Calendar", "Email", &value.email);
         push_text(&mut attendee, "Calendar", "Name", &value.name);

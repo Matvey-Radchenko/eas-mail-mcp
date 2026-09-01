@@ -229,6 +229,18 @@ impl EasClient {
         protocol::parse_calendar_search(&response.body)
     }
 
+    /// Searches the global address list without downloading unrelated directory properties.
+    pub async fn search_people(
+        &self,
+        key: u32,
+        query: &str,
+        limit: usize,
+    ) -> Result<protocol::DirectoryPage> {
+        let body = protocol::build_people_search(query, limit)?;
+        let response = self.read_command(Command::Search, &body, key).await?;
+        protocol::parse_people_search(&response.body, limit)
+    }
+
     /// Resolves recipients and retrieves one bounded free/busy range.
     pub async fn availability(
         &self,
@@ -362,6 +374,25 @@ impl EasClient {
         response: MeetingResponseChoice,
     ) -> Result<MeetingResponseResult> {
         let body = protocol::build_meeting_response(collection_id, request_id, response)?;
+        let response = self.mutation_command(Command::MeetingResponse, &body, key).await?;
+        protocol::parse_meeting_response(&response.body)
+    }
+
+    /// Responds to one meeting request returned by Search LongId with no network retry.
+    pub async fn meeting_response_instance(
+        &self,
+        key: u32,
+        collection_id: &str,
+        request_id: &str,
+        response: MeetingResponseChoice,
+        original: Option<DateTime<Utc>>,
+    ) -> Result<MeetingResponseResult> {
+        let body = protocol::build_meeting_response_instance(
+            collection_id,
+            request_id,
+            response,
+            original,
+        )?;
         let response = self.mutation_command(Command::MeetingResponse, &body, key).await?;
         protocol::parse_meeting_response(&response.body)
     }

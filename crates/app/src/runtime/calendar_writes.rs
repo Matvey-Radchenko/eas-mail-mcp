@@ -2,12 +2,10 @@ use std::sync::Arc;
 
 use super::Runtime;
 use super::calendar_mime::CalendarMessageMethod;
-use super::calendar_prepare::{self, EventOwnership};
-use super::calendar_write_preview::{event_preview, update_preview};
-use super::calendar_write_result::{self, STEP_ITEM, STEP_NOTIFY_CURRENT, STEP_NOTIFY_REMOVED};
-use super::calendar_write_support::{
-    notification, operation_uid, required_notification, step_client_id,
-};
+use super::calendar_prepare;
+use super::calendar_write_preview::event_preview;
+use super::calendar_write_result::{self, STEP_ITEM, STEP_NOTIFY_CURRENT};
+use super::calendar_write_support::{notification, operation_uid, step_client_id};
 use super::write_preview;
 use crate::backend::AccountBackend;
 use crate::model::{
@@ -17,7 +15,7 @@ use crate::model::{
 use crate::{AppError, ErrorCode, JournalRecord, OperationStatus, Result, Warning};
 
 impl Runtime {
-    /// Creates one non-recurring personal event or organizer meeting.
+    /// Creates one personal event or organizer meeting.
     pub async fn calendar_create(
         &self,
         input: CalendarCreateInput,
@@ -25,7 +23,7 @@ impl Runtime {
         Self::response(self.calendar_create_result(input, None).await)
     }
 
-    /// Applies a patch to one non-recurring personal event or organizer meeting.
+    /// Applies a patch to one personal event or organizer meeting.
     pub async fn calendar_update(
         &self,
         input: CalendarUpdateInput,
@@ -33,7 +31,7 @@ impl Runtime {
         Self::response(self.calendar_update_result(input, None).await)
     }
 
-    /// Deletes one non-recurring personal event.
+    /// Deletes one personal event.
     pub async fn calendar_delete(
         &self,
         input: CalendarDeleteInput,
@@ -41,7 +39,7 @@ impl Runtime {
         Self::response(self.calendar_delete_result(input, None).await)
     }
 
-    /// Cancels one non-recurring organizer meeting and notifies attendees.
+    /// Cancels one organizer meeting and notifies attendees.
     pub async fn calendar_cancel(
         &self,
         input: CalendarCancelInput,
@@ -49,7 +47,7 @@ impl Runtime {
         Self::response(self.calendar_cancel_result(input, None).await)
     }
 
-    /// Accepts, tentatively accepts, or declines one non-recurring received meeting.
+    /// Accepts, tentatively accepts, or declines one received meeting.
     pub async fn calendar_respond(
         &self,
         input: CalendarRespondInput,
@@ -157,73 +155,11 @@ impl Runtime {
         input: CalendarUpdateInput,
         expected: Option<&str>,
     ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
-        if let Some(record) =
-            self.replay_write("calendar_update", &input.idempotency_key, &input)?
-        {
-            return Ok((calendar_write_result::existing(record), Vec::new()));
-        }
-        let reference = self.references.event(&input.event_ref)?;
-        calendar_prepare::require_non_recurring(&reference)?;
-        let backend = self.require_write(&reference.account_id)?;
-        let account = backend.account();
-        let _guard = self.write_locks.acquire(&reference.account_id).await?;
-        let source = self.account_result(
-            &reference.account_id,
-            backend.resolve_calendar_source(&reference).await,
-        )?;
-        let old = calendar_prepare::existing(&source, self.clock.now())?;
-        let prepared = calendar_prepare::update(&input, &source, self.clock.now(), &account.email)?;
-        let meeting = !old.mutation.application.attendees.is_empty()
-            || !prepared.event.mutation.application.attendees.is_empty();
-        self.require_calendar_capabilities(&backend, meeting).await?;
-        write_preview::verify(&update_preview(&reference.account_id, &prepared), expected)?;
-        let request_id = step_client_id(&input.idempotency_key, "request")?;
-        let cancel_id = step_client_id(&input.idempotency_key, "cancel-removed")?;
-        let request_mime = notification(
-            &account.email,
-            &prepared.event,
-            &prepared.event.mutation.application.attendees,
-            CalendarMessageMethod::Request,
-            "",
-        )?;
-        let cancel_mime = notification(
-            &account.email,
-            &old,
-            &prepared.removed_attendees,
-            CalendarMessageMethod::Cancel,
-            "",
-        )?;
-        let begin = self.begin_write(
-            &reference.account_id,
-            "calendar_update",
-            &input.idempotency_key,
-            &input,
-        )?;
-        if !begin.inserted {
-            return Ok((calendar_write_result::existing(begin.record), Vec::new()));
-        }
-        let updated = match backend.update_calendar_item(&source, &prepared.event.mutation).await {
-            Ok(value) => value,
-            Err(error) => return self.calendar_failure(&begin.record, 0, error, None),
-        };
-        let mut steps = STEP_ITEM;
-        self.journal.checkpoint(&begin.record.operation_id, steps)?;
-        let event_ref = self.references.insert_event(updated)?;
-        if let Some(mime) = request_mime {
-            if let Err(error) = backend.send_calendar_message(&request_id, mime).await {
-                return self.calendar_failure(&begin.record, steps, error, Some(event_ref));
-            }
-            steps |= STEP_NOTIFY_CURRENT;
-            self.journal.checkpoint(&begin.record.operation_id, steps)?;
-        }
-        if let Some(mime) = cancel_mime {
-            if let Err(error) = backend.send_calendar_message(&cancel_id, mime).await {
-                return self.calendar_failure(&begin.record, steps, error, Some(event_ref));
-            }
-            steps |= STEP_NOTIFY_REMOVED;
-            self.journal.checkpoint(&begin.record.operation_id, steps)?;
-        }
-        self.calendar_success(&begin.record, steps, Some(event_ref))
+        self.calendar_edit(
+            super::calendar_series::edit::EditInput::Update(Box::new(input)),
+            expected,
+        )
+        .await
     }
 
     async fn calendar_delete_result(
@@ -231,41 +167,7 @@ impl Runtime {
         input: CalendarDeleteInput,
         expected: Option<&str>,
     ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
-        if let Some(record) =
-            self.replay_write("calendar_delete", &input.idempotency_key, &input)?
-        {
-            return Ok((calendar_write_result::existing(record), Vec::new()));
-        }
-        let reference = self.references.event(&input.event_ref)?;
-        calendar_prepare::require_non_recurring(&reference)?;
-        let backend = self.require_write(&reference.account_id)?;
-        let account = backend.account();
-        self.require_calendar_capabilities(&backend, false).await?;
-        let _guard = self.write_locks.acquire(&reference.account_id).await?;
-        let source = backend.resolve_calendar_source(&reference).await?;
-        calendar_prepare::require_non_recurring(&source)?;
-        if calendar_prepare::ownership(&source, &account.email) != EventOwnership::Personal {
-            return Err(validation("calendar_delete only accepts personal events"));
-        }
-        let prepared = calendar_prepare::existing(&source, self.clock.now())?;
-        write_preview::verify(
-            &event_preview("calendar_delete", &reference.account_id, &prepared),
-            expected,
-        )?;
-        let begin = self.begin_write(
-            &reference.account_id,
-            "calendar_delete",
-            &input.idempotency_key,
-            &input,
-        )?;
-        if !begin.inserted {
-            return Ok((calendar_write_result::existing(begin.record), Vec::new()));
-        }
-        if let Err(error) = backend.delete_calendar_item(&source).await {
-            return self.calendar_failure(&begin.record, 0, error, None);
-        }
-        self.journal.checkpoint(&begin.record.operation_id, STEP_ITEM)?;
-        self.calendar_success(&begin.record, STEP_ITEM, None)
+        self.calendar_edit(super::calendar_series::edit::EditInput::Delete(input), expected).await
     }
 
     async fn calendar_cancel_result(
@@ -273,55 +175,7 @@ impl Runtime {
         input: CalendarCancelInput,
         expected: Option<&str>,
     ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
-        if let Some(record) =
-            self.replay_write("calendar_cancel", &input.idempotency_key, &input)?
-        {
-            return Ok((calendar_write_result::existing(record), Vec::new()));
-        }
-        calendar_prepare::validate_comment(&input.comment)?;
-        let reference = self.references.event(&input.event_ref)?;
-        calendar_prepare::require_non_recurring(&reference)?;
-        let backend = self.require_write(&reference.account_id)?;
-        let account = backend.account();
-        self.require_calendar_capabilities(&backend, true).await?;
-        let _guard = self.write_locks.acquire(&reference.account_id).await?;
-        let source = backend.resolve_calendar_source(&reference).await?;
-        calendar_prepare::require_non_recurring(&source)?;
-        if calendar_prepare::ownership(&source, &account.email) != EventOwnership::Organizer {
-            return Err(validation("calendar_cancel requires an organizer meeting"));
-        }
-        let prepared = calendar_prepare::existing(&source, self.clock.now())?;
-        let preview = event_preview("calendar_cancel", &reference.account_id, &prepared)
-            .field("Comment", &input.comment);
-        write_preview::verify(&preview, expected)?;
-        let cancel_id = step_client_id(&input.idempotency_key, "cancel")?;
-        let mime = required_notification(
-            &account.email,
-            &prepared,
-            &prepared.mutation.application.attendees,
-            CalendarMessageMethod::Cancel,
-            &input.comment,
-        )?;
-        let begin = self.begin_write(
-            &reference.account_id,
-            "calendar_cancel",
-            &input.idempotency_key,
-            &input,
-        )?;
-        if !begin.inserted {
-            return Ok((calendar_write_result::existing(begin.record), Vec::new()));
-        }
-        if let Err(error) = backend.delete_calendar_item(&source).await {
-            return self.calendar_failure(&begin.record, 0, error, None);
-        }
-        let mut steps = STEP_ITEM;
-        self.journal.checkpoint(&begin.record.operation_id, steps)?;
-        if let Err(error) = backend.send_calendar_message(&cancel_id, mime).await {
-            return self.calendar_failure(&begin.record, steps, error, None);
-        }
-        steps |= STEP_NOTIFY_CURRENT;
-        self.journal.checkpoint(&begin.record.operation_id, steps)?;
-        self.calendar_success(&begin.record, steps, None)
+        self.calendar_edit(super::calendar_series::edit::EditInput::Cancel(input), expected).await
     }
 
     pub(super) fn calendar_success(
@@ -408,8 +262,4 @@ impl Runtime {
             .account(account_id))
         }
     }
-}
-
-fn validation(message: &'static str) -> AppError {
-    AppError::new(ErrorCode::ValidationFailed, message)
 }

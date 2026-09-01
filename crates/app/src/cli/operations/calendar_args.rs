@@ -16,9 +16,9 @@ pub(in crate::cli) enum CalendarCommand {
     Agenda(CalendarAgendaArgs),
     /// Fetch one full own-calendar event.
     Get(CalendarGetArgs),
-    /// Create one non-recurring event or meeting.
+    /// Create one event or meeting.
     Create(CalendarCreateArgs),
-    /// Update one non-recurring event or organizer meeting.
+    /// Update one event or organizer meeting.
     Update(CalendarUpdateArgs),
     /// Delete one personal event.
     Delete(CalendarDeleteArgs),
@@ -148,6 +148,8 @@ pub(super) struct AttendeeArgs {
 #[derive(Debug, Args)]
 pub(in crate::cli) struct CalendarCreateArgs {
     #[command(flatten)]
+    pub(super) recurrence: super::calendar_recurrence::RecurrenceArgs,
+    #[command(flatten)]
     pub(super) source: InputSource,
     /// Owning account ID.
     #[arg(long)]
@@ -176,6 +178,11 @@ pub(in crate::cli) struct CalendarCreateArgs {
 
 #[derive(Debug, Args)]
 pub(in crate::cli) struct CalendarUpdateArgs {
+    /// Mutation boundary; required for recurring events.
+    #[arg(long, value_enum)]
+    pub(super) scope: Option<crate::model::CalendarScope>,
+    #[command(flatten)]
+    pub(super) recurrence: super::calendar_recurrence::RecurrenceArgs,
     /// Portable event reference; omit only when using --input.
     pub(super) event_ref: Option<String>,
     #[command(flatten)]
@@ -210,6 +217,9 @@ pub(in crate::cli) struct CalendarUpdateArgs {
 
 #[derive(Debug, Args)]
 pub(in crate::cli) struct CalendarDeleteArgs {
+    /// Mutation boundary; required for recurring events.
+    #[arg(long, value_enum)]
+    pub(super) scope: Option<crate::model::CalendarScope>,
     /// Portable event reference; omit only when using --input.
     pub(super) event_ref: Option<String>,
     #[command(flatten)]
@@ -220,6 +230,9 @@ pub(in crate::cli) struct CalendarDeleteArgs {
 
 #[derive(Debug, Args)]
 pub(in crate::cli) struct CalendarCancelArgs {
+    /// Mutation boundary; required for recurring events.
+    #[arg(long, value_enum)]
+    pub(super) scope: Option<crate::model::CalendarScope>,
     /// Portable event reference; omit only when using --input.
     pub(super) event_ref: Option<String>,
     #[command(flatten)]
@@ -232,6 +245,9 @@ pub(in crate::cli) struct CalendarCancelArgs {
 
 #[derive(Debug, Args)]
 pub(in crate::cli) struct CalendarRespondArgs {
+    /// Mutation boundary; required for recurring events.
+    #[arg(long, value_enum)]
+    pub(super) scope: Option<crate::model::CalendarScope>,
     /// Portable event or meeting-request mail reference; omit only with --input.
     pub(super) event_ref: Option<String>,
     /// Response choice; omit only when using --input.

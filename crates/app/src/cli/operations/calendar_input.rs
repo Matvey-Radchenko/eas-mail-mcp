@@ -121,6 +121,7 @@ pub(super) fn create(arguments: CalendarCreateArgs) -> Result<(CalendarCreateInp
     let has_flags = arguments.account.is_some()
         || arguments.subject.is_some()
         || schedule_flags(&arguments.schedule)
+        || arguments.recurrence.has_flags()
         || body_flags(&arguments.content)
         || arguments.location.is_some()
         || arguments.reminder.is_some()
@@ -132,6 +133,7 @@ pub(super) fn create(arguments: CalendarCreateArgs) -> Result<(CalendarCreateInp
         read_write_json(&path, &arguments.control)?
     } else {
         CalendarCreateInput {
+            recurrence: arguments.recurrence.into_input()?,
             account_id: required(arguments.account, "account")?,
             subject: required(arguments.subject, "subject")?,
             schedule: required_schedule(arguments.schedule)?,
@@ -149,9 +151,11 @@ pub(super) fn create(arguments: CalendarCreateArgs) -> Result<(CalendarCreateInp
 }
 
 pub(super) fn update(arguments: CalendarUpdateArgs) -> Result<(CalendarUpdateInput, bool)> {
-    let has_flags = arguments.event_ref.is_some()
+    let has_flags = arguments.scope.is_some()
+        || arguments.event_ref.is_some()
         || arguments.subject.is_some()
         || schedule_flags(&arguments.schedule)
+        || arguments.recurrence.has_flags()
         || body_flags(&arguments.content)
         || arguments.location.is_some()
         || arguments.reminder.is_some()
@@ -165,6 +169,8 @@ pub(super) fn update(arguments: CalendarUpdateArgs) -> Result<(CalendarUpdateInp
         read_write_json(&path, &arguments.control)?
     } else {
         CalendarUpdateInput {
+            scope: arguments.scope,
+            recurrence: arguments.recurrence.into_input()?,
             event_ref: required(arguments.event_ref, "event_ref")?,
             subject: arguments.subject,
             schedule: optional_schedule(arguments.schedule)?,
@@ -183,12 +189,15 @@ pub(super) fn update(arguments: CalendarUpdateArgs) -> Result<(CalendarUpdateInp
 pub(super) fn delete(arguments: CalendarDeleteArgs) -> Result<(CalendarDeleteInput, bool)> {
     ensure_flag_mode(
         arguments.source.input.as_ref(),
-        arguments.event_ref.is_some() || arguments.control.idempotency_key.is_some(),
+        arguments.scope.is_some()
+            || arguments.event_ref.is_some()
+            || arguments.control.idempotency_key.is_some(),
     )?;
     let input = if let Some(path) = arguments.source.input {
         read_write_json(&path, &arguments.control)?
     } else {
         CalendarDeleteInput {
+            scope: arguments.scope,
             event_ref: required(arguments.event_ref, "event_ref")?,
             idempotency_key: idempotency_key(&arguments.control),
         }
@@ -197,7 +206,8 @@ pub(super) fn delete(arguments: CalendarDeleteArgs) -> Result<(CalendarDeleteInp
 }
 
 pub(super) fn cancel(arguments: CalendarCancelArgs) -> Result<(CalendarCancelInput, bool)> {
-    let has_flags = arguments.event_ref.is_some()
+    let has_flags = arguments.scope.is_some()
+        || arguments.event_ref.is_some()
         || comment_flags(&arguments.content)
         || arguments.control.idempotency_key.is_some();
     ensure_flag_mode(arguments.source.input.as_ref(), has_flags)?;
@@ -205,6 +215,7 @@ pub(super) fn cancel(arguments: CalendarCancelArgs) -> Result<(CalendarCancelInp
         read_write_json(&path, &arguments.control)?
     } else {
         CalendarCancelInput {
+            scope: arguments.scope,
             event_ref: required(arguments.event_ref, "event_ref")?,
             comment: comment(&arguments.content)?,
             idempotency_key: idempotency_key(&arguments.control),
@@ -214,7 +225,8 @@ pub(super) fn cancel(arguments: CalendarCancelArgs) -> Result<(CalendarCancelInp
 }
 
 pub(super) fn respond(arguments: CalendarRespondArgs) -> Result<(CalendarRespondInput, bool)> {
-    let has_flags = arguments.event_ref.is_some()
+    let has_flags = arguments.scope.is_some()
+        || arguments.event_ref.is_some()
         || arguments.response.is_some()
         || comment_flags(&arguments.content)
         || arguments.control.idempotency_key.is_some();
@@ -223,6 +235,7 @@ pub(super) fn respond(arguments: CalendarRespondArgs) -> Result<(CalendarRespond
         read_write_json(&path, &arguments.control)?
     } else {
         CalendarRespondInput {
+            scope: arguments.scope,
             event_ref: required(arguments.event_ref, "event_ref")?,
             response: response(arguments.response.ok_or_else(|| invalid("response is required"))?),
             comment: comment(&arguments.content)?,
@@ -251,7 +264,7 @@ fn parse_working_hours(value: &str) -> Result<WorkingHoursInput> {
     Ok(WorkingHoursInput { weekdays, start: start.to_owned(), end: end.to_owned() })
 }
 
-fn parse_weekday(value: &str) -> Result<ScheduleWeekday> {
+pub(super) fn parse_weekday(value: &str) -> Result<ScheduleWeekday> {
     match value.trim().to_ascii_lowercase().as_str() {
         "mon" => Ok(ScheduleWeekday::Mon),
         "tue" => Ok(ScheduleWeekday::Tue),

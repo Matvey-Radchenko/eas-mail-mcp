@@ -32,6 +32,12 @@ Calendar operations can have several external steps. Confirmed step bits are
 stored without event content; a later safe failure returns `partial`, while an
 ambiguous step returns `unknown`. Neither outcome is blindly retried.
 
+Recurring writes require an explicit scope. An occurrence is checked against
+the current master using its original start, not its moved time. Unknown fields,
+truncated data, and edits that would orphan exceptions block mutation. Splitting
+a series is not atomic on Exchange: a partial result can leave a new series next
+to the old one and requires manual reconciliation, not a new UUID retry.
+
 ## Network boundary
 
 Profiles are local, user-owned configuration and are validated at every process
@@ -58,7 +64,7 @@ On Windows, these non-secret runtime files are rooted at
 `%LOCALAPPDATA%\EAS Mail MCP`. Reparse points are rejected for application-owned
 directories and files.
 
-Mailbox content is untrusted external input. HTML is converted to plain text,
+Mailbox and directory content is untrusted external input. HTML is converted to plain text,
 external images are not fetched, file names are sanitized, and MCP responses
 mark external content explicitly.
 
@@ -68,3 +74,5 @@ only account and EAS locator metadata, not bodies, subjects, recipients, or
 credentials. They are neither signed nor time-limited because another process
 with the same UID can already access the same local account boundary. Immutable
 mail-page cursors remain random process-local values with a 15-minute TTL.
+Occurrence references additionally contain the original UTC occurrence start;
+the runtime validates its format and membership before use.

@@ -49,6 +49,7 @@ async fn remove_event(runtime: &Runtime, event: CalendarEvent) -> anyhow::Result
         removed(
             runtime
                 .calendar_cancel(CalendarCancelInput {
+                    scope: None,
                     event_ref: event.event_ref,
                     comment: "Release harness failure cleanup".into(),
                     idempotency_key: operation_id(),
@@ -60,6 +61,7 @@ async fn remove_event(runtime: &Runtime, event: CalendarEvent) -> anyhow::Result
         removed(
             runtime
                 .calendar_delete(CalendarDeleteInput {
+                    scope: None,
                     event_ref: event.event_ref,
                     idempotency_key: operation_id(),
                 })
