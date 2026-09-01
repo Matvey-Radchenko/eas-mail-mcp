@@ -154,8 +154,8 @@ pub struct CalendarFields {
     pub organizer_email: Patch<String>,
     /// Meeting attendees and their EAS roles and statuses.
     pub attendees: Patch<Vec<CalendarAttendee>>,
-    /// Reminder in minutes.
-    pub reminder_minutes: Patch<u32>,
+    /// Reminder in minutes; an explicit `None` clears an existing reminder.
+    pub reminder_minutes: Patch<Option<u32>>,
     /// Recurrence fields retained for read-only clients.
     pub recurrence: Patch<BTreeMap<String, String>>,
     /// Exception fields retained for read-only clients.

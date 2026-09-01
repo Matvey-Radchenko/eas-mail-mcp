@@ -157,7 +157,7 @@ process-local.
 
 ## MCP tools
 
-Version `0.5.0` exposes 23 tools, including bounded directory search and
+Version `0.5.1` exposes 23 tools, including bounded directory search and
 recurring calendar writes.
 
 <details>
@@ -206,7 +206,7 @@ or an externally hosted AI model.
 
 ## Compatibility and limits
 
-`0.5.0` supports macOS arm64 and x86_64 and Windows 11 x64. Windows ARM64 and
+`0.5.1` supports macOS arm64 and x86_64 and Windows 11 x64. Windows ARM64 and
 Linux are not supported. The Windows executable is distributed without an
 Authenticode signature. Each release contains the root npm tarball plus three
 native tarballs for the supported platform/architecture pairs.
@@ -231,8 +231,8 @@ Unsupported recurrence data or a change that cannot preserve existing exceptions
 is rejected before mutation. See [recurring events](docs/calendar-series.md)
 for selectors, references, and split semantics.
 
-Recurring invitations are covered by fake-server and MIME tests, but were not
-validated with a live recipient before `0.5.0`. Treat invitation delivery as a
+Recurring invitations are covered by fake-server and MIME tests, but have not
+been validated with a live recipient. Treat invitation delivery as a
 known release limitation until a post-release live check is recorded.
 
 Exchange policy, server capabilities, allowlists, and corporate network rules

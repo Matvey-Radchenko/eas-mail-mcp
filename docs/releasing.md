@@ -66,7 +66,7 @@ eas-mail-mcp setup
 On Windows PowerShell:
 
 ```powershell
-npm install -g .\eas-mail-mcp-windows-x64-0.5.0.tgz .\eas-mail-mcp-0.5.0.tgz
+npm install -g .\eas-mail-mcp-windows-x64-*.tgz .\eas-mail-mcp-0.*.tgz
 eas-mail-mcp --version --verbose
 eas-mail-mcp native-path
 eas-mail-mcp doctor

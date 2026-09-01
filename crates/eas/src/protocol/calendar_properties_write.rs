@@ -78,7 +78,7 @@ fn render_exception(value: &CalendarException) -> Result<Element> {
     bool_field(&mut output, "AllDayEvent", &fields.all_day);
     number_field(&mut output, "BusyStatus", &fields.busy_status);
     number_field(&mut output, "MeetingStatus", &fields.meeting_status);
-    number_field(&mut output, "Reminder", &fields.reminder_minutes);
+    optional_number_field(&mut output, "Reminder", &fields.reminder_minutes);
     if let Patch::Value(body) = &fields.body {
         let mut container = element("AirSyncBase", "Body");
         push_text(&mut container, "AirSyncBase", "Type", "1");
@@ -103,5 +103,13 @@ fn bool_field(parent: &mut Element, tag: &str, value: &Patch<bool>) {
 fn number_field<T: ToString>(parent: &mut Element, tag: &str, value: &Patch<T>) {
     if let Patch::Value(value) = value {
         push_text(parent, "Calendar", tag, value.to_string());
+    }
+}
+
+fn optional_number_field<T: ToString>(parent: &mut Element, tag: &str, value: &Patch<Option<T>>) {
+    match value {
+        Patch::Value(Some(value)) => push_text(parent, "Calendar", tag, value.to_string()),
+        Patch::Value(None) => parent.push(element("Calendar", tag)),
+        Patch::Missing => {}
     }
 }

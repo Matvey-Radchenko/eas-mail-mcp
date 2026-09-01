@@ -17,12 +17,12 @@ use eas_mail_protocol::{
 };
 
 use support::{
-    call, default_policy, folder_response, mailbox, mutation, options,
-    options_with_calendar_writes, provision_response, read, sync_response,
+    calendar_item_response, calendar_uid_change, call, default_policy, folder_response, mailbox,
+    mutation, options, options_with_calendar_writes, provision_response, read, sync_response,
 };
 
 #[tokio::test]
-async fn calendar_add_initializes_sync_key_without_loading_events() -> anyhow::Result<()> {
+async fn calendar_add_reference_recovers_from_a_stale_server_id_by_uid() -> anyhow::Result<()> {
     let item = application()?;
     let calls = vec![
         options_with_calendar_writes(),
@@ -37,6 +37,21 @@ async fn calendar_add_initializes_sync_key_without_loading_events() -> anyhow::R
             build_calendar_add("calendar", "calendar-1", "client-1", &item)?,
             mutation_response("Add", "calendar-2", 1, Some("event-1"))?,
         ),
+        read(
+            Command::Sync,
+            build_sync("calendar", "0", CollectionKind::Calendar, 6, 0)?,
+            sync_response("fresh-1", 1, false, Vec::new())?,
+        ),
+        read(
+            Command::Sync,
+            build_sync("calendar", "fresh-1", CollectionKind::Calendar, 6, 0)?,
+            sync_response("fresh-2", 1, false, vec![calendar_uid_change("event-23", "uid-1")])?,
+        ),
+        read(
+            Command::ItemOperations,
+            build_item_fetch(None, Some("calendar"), Some("event-23"), 50_000)?,
+            calendar_item_response("calendar", "event-23", "uid-1")?,
+        ),
     ];
     let (mailbox, transport) = mailbox(calls, default_policy())?;
     let created = mailbox
@@ -46,13 +61,14 @@ async fn calendar_add_initializes_sync_key_without_loading_events() -> anyhow::R
         )
         .await?;
     assert_eq!(created.collection_id.as_deref(), Some("calendar"));
-    assert_eq!(created.server_id.as_deref(), Some("event-1"));
+    assert_eq!(created.server_id.as_deref(), Some("event-23"));
+    assert_eq!(created.fields.uid, Patch::Value("uid-1".into()));
     transport.verify_complete()?;
     Ok(())
 }
 
 #[tokio::test]
-async fn item_operations_source_is_reused_for_change_response_and_delete() -> anyhow::Result<()> {
+async fn item_operations_source_is_rebound_for_change_response_and_delete() -> anyhow::Result<()> {
     let item = application()?;
     let search_source = BackendEvent {
         occurrence_start: None,
@@ -67,27 +83,42 @@ async fn item_operations_source_is_reused_for_change_response_and_delete() -> an
         read(
             Command::ItemOperations,
             build_item_fetch(Some("long-1"), None, None, 50_000)?,
-            item_response("calendar", "event-1", "uid-1")?,
+            calendar_item_response("calendar", "event-1", "uid-1")?,
         ),
         read(
             Command::Sync,
             build_sync("calendar", "0", CollectionKind::Calendar, 6, 0)?,
             sync_response("calendar-1", 1, false, Vec::new())?,
         ),
+        read(
+            Command::Sync,
+            build_sync("calendar", "calendar-1", CollectionKind::Calendar, 6, 0)?,
+            sync_response(
+                "calendar-2",
+                1,
+                false,
+                vec![calendar_uid_change("event-current", "uid-1")],
+            )?,
+        ),
+        read(
+            Command::ItemOperations,
+            build_item_fetch(None, Some("calendar"), Some("event-current"), 50_000)?,
+            calendar_item_response("calendar", "event-current", "uid-1")?,
+        ),
         mutation(
             Command::Sync,
-            build_calendar_change("calendar", "calendar-1", "event-1", &item)?,
-            mutation_response("Change", "calendar-2", 1, None)?,
+            build_calendar_change("calendar", "calendar-2", "event-current", &item)?,
+            mutation_response("Change", "calendar-3", 1, None)?,
         ),
         mutation(
             Command::MeetingResponse,
-            build_meeting_response("calendar", "event-1", MeetingResponseChoice::Tentative)?,
-            meeting_response("event-1", Some("accepted-event"))?,
+            build_meeting_response("calendar", "event-current", MeetingResponseChoice::Tentative)?,
+            meeting_response("event-current", Some("accepted-event"))?,
         ),
         mutation(
             Command::Sync,
-            build_calendar_delete("calendar", "calendar-2", "event-1")?,
-            mutation_response("Delete", "calendar-3", 1, None)?,
+            build_calendar_delete("calendar", "calendar-3", "event-current")?,
+            mutation_response("Delete", "calendar-4", 1, None)?,
         ),
     ];
     let (mailbox, transport) = mailbox(calls, default_policy())?;
@@ -98,7 +129,7 @@ async fn item_operations_source_is_reused_for_change_response_and_delete() -> an
             &BackendCalendarMutation { target_collection: None, application: item },
         )
         .await?;
-    assert_eq!(updated.server_id.as_deref(), Some("event-1"));
+    assert_eq!(updated.server_id.as_deref(), Some("event-current"));
     assert_eq!(
         mailbox.respond_calendar_item(&updated, MeetingResponseChoice::Tentative).await?.as_deref(),
         Some("accepted-event")
@@ -174,7 +205,17 @@ async fn invalid_sync_key_resets_only_calendar_and_scans_paged_metadata() -> any
         read(
             Command::Sync,
             build_sync("calendar", "0", CollectionKind::Calendar, 6, 0)?,
-            sync_response("stale-key", 1, false, Vec::new())?,
+            sync_response("stale-1", 1, false, Vec::new())?,
+        ),
+        read(
+            Command::Sync,
+            build_sync("calendar", "stale-1", CollectionKind::Calendar, 6, 0)?,
+            sync_response("stale-key", 1, false, vec![calendar_uid_change("old-event", "uid-1")])?,
+        ),
+        read(
+            Command::ItemOperations,
+            build_item_fetch(None, Some("calendar"), Some("old-event"), 50_000)?,
+            calendar_item_response("calendar", "old-event", "uid-1")?,
         ),
         mutation(
             Command::Sync,
@@ -194,7 +235,7 @@ async fn invalid_sync_key_resets_only_calendar_and_scans_paged_metadata() -> any
         read(
             Command::Sync,
             build_sync("calendar", "fresh-2", CollectionKind::Calendar, 6, 0)?,
-            sync_response("fresh-3", 1, false, vec![uid_change("new-event", "uid-1")])?,
+            sync_response("fresh-3", 1, false, vec![calendar_uid_change("new-event", "uid-1")])?,
         ),
         mutation(
             Command::Sync,
@@ -336,23 +377,6 @@ fn mutation_response(
     encode(&root)
 }
 
-fn item_response(
-    collection_id: &str,
-    server_id: &str,
-    uid: &str,
-) -> eas_mail_protocol::Result<Vec<u8>> {
-    let mut root = Element::new("ItemOperations", "ItemOperations");
-    let mut fetch = Element::new("ItemOperations", "Fetch");
-    fetch.push(Element::text("ItemOperations", "Status", "1"));
-    fetch.push(Element::text("AirSync", "CollectionId", collection_id));
-    fetch.push(Element::text("AirSync", "ServerId", server_id));
-    let mut properties = Element::new("ItemOperations", "Properties");
-    properties.push(Element::text("Calendar", "UID", uid));
-    fetch.push(properties);
-    root.push(fetch);
-    encode(&root)
-}
-
 fn meeting_response(
     request_id: &str,
     calendar_id: Option<&str>,
@@ -366,13 +390,4 @@ fn meeting_response(
     }
     root.push(result);
     encode(&root)
-}
-
-fn uid_change(server_id: &str, uid: &str) -> Element {
-    let mut add = Element::new("AirSync", "Add");
-    add.push(Element::text("AirSync", "ServerId", server_id));
-    let mut application = Element::new("AirSync", "ApplicationData");
-    application.push(Element::text("Calendar", "UID", uid));
-    add.push(application);
-    add
 }

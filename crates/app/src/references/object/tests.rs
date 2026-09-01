@@ -132,6 +132,28 @@ fn occurrence_references_keep_original_start_and_reject_invalid_timestamps() -> 
     Ok(())
 }
 
+#[test]
+fn event_references_preserve_uid_and_legacy_references_remain_supported() -> Result<()> {
+    let mut event = BackendEvent {
+        occurrence_start: None,
+        account_id: "work".into(),
+        long_id: String::new(),
+        collection_id: Some("calendar".into()),
+        server_id: Some("event-1".into()),
+        fields: CalendarFields { uid: Patch::Value("uid-1".into()), ..CalendarFields::default() },
+    };
+    let reference = encode_event(event.clone())?;
+    assert_eq!(decode_event(&reference)?, event);
+
+    let legacy = encoded(
+        "event",
+        r#"{"account_id":"work","long_id":"","collection_id":"calendar","server_id":"event-1"}"#,
+    );
+    event.fields = CalendarFields::default();
+    assert_eq!(decode_event(&legacy)?, event);
+    Ok(())
+}
+
 fn encoded(kind: &str, json: &str) -> String {
     format!("ref1.{kind}.{}", URL_SAFE_NO_PAD.encode(json.as_bytes()))
 }

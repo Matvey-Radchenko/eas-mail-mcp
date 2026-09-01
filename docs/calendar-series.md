@@ -1,7 +1,8 @@
 # Recurring calendar and directory search
 
-These capabilities are included in `0.5.0`. Live recurring invitations were not
-validated before release and remain a documented acceptance exception.
+These capabilities are included in `0.5.0`. Version `0.5.1` fixes the first
+live-tested personal-series lifecycle. Live recurring invitations remain a
+documented acceptance exception.
 
 ## Find a colleague
 

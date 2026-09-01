@@ -37,6 +37,13 @@ pub(super) struct SessionState {
     pub(super) folder_sync_key: String,
     pub(super) folders: BTreeMap<String, Folder>,
     pub(super) collections: BTreeMap<String, CollectionState>,
+    pub(super) calendar_bindings: BTreeMap<String, CalendarBinding>,
+}
+
+pub(super) struct CalendarBinding {
+    pub(super) collection_id: String,
+    pub(super) server_id: String,
+    pub(super) sync_key: String,
 }
 
 /// EAS-backed, process-local account session.
@@ -137,6 +144,7 @@ impl EasMailbox {
                 folder_sync_key: "0".into(),
                 folders: BTreeMap::new(),
                 collections: BTreeMap::new(),
+                calendar_bindings: BTreeMap::new(),
             }),
         })
     }

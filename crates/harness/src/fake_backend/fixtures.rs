@@ -48,7 +48,7 @@ pub(super) fn event(account_id: &str) -> BackendEvent {
                 attendee_type: 1,
                 attendee_status: 0,
             }]),
-            reminder_minutes: Patch::Value(15),
+            reminder_minutes: Patch::Value(Some(15)),
             recurrence: Patch::Value(BTreeMap::new()),
             exceptions: Patch::Value(Vec::new()),
             meeting_status: Patch::Value(1),
@@ -80,7 +80,7 @@ pub(super) fn event_from_application(account_id: &str, item: &CalendarApplicatio
             location: Patch::Value(item.location.clone()),
             organizer_email: Patch::Value(format!("{account_id}@example.invalid")),
             attendees: Patch::Value(item.attendees.clone()),
-            reminder_minutes: item.reminder_minutes.map_or(Patch::Missing, Patch::Value),
+            reminder_minutes: Patch::Value(item.reminder_minutes),
             recurrence: Patch::Value(
                 item.properties
                     .recurrence

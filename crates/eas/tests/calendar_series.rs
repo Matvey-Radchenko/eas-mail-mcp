@@ -151,6 +151,16 @@ fn unsupported_fields_do_not_break_reads_but_block_full_writes() -> anyhow::Resu
 }
 
 #[test]
+fn empty_server_managed_exception_fields_do_not_block_series_writes() -> anyhow::Result<()> {
+    let mut properties = Element::new("ItemOperations", "Properties");
+    properties.push(Element::new("Calendar", "AppointmentReplyTime"));
+    properties.push(Element::new("Calendar", "OnlineMeetingConfLink"));
+    properties.push(Element::new("Calendar", "OnlineMeetingExternalLink"));
+    assert!(fetch(properties)?.properties.context("properties")?.can_write());
+    Ok(())
+}
+
+#[test]
 fn absent_and_cleared_exception_categories_and_sensitivity_are_distinct() -> anyhow::Result<()> {
     let mut item = application()?;
     item.properties.sensitivity = Some(2);

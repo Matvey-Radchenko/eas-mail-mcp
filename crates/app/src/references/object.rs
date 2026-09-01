@@ -1,7 +1,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{Datelike as _, Timelike as _};
-use eas_mail_protocol::{CalendarFields, MailFields};
+use eas_mail_protocol::{CalendarFields, MailFields, Patch};
 use serde::{Deserialize, Serialize};
 
 use crate::backend::{BackendEvent, BackendMail, MailSource};
@@ -47,6 +47,8 @@ struct EventPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     occurrence_start: Option<chrono::DateTime<chrono::Utc>>,
     account_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    uid: Option<String>,
     long_id: String,
     collection_id: Option<String>,
     server_id: Option<String>,
@@ -89,9 +91,14 @@ pub(super) fn decode_mail(value: &str) -> Result<BackendMail> {
 }
 
 pub(super) fn encode_event(value: BackendEvent) -> Result<String> {
+    let uid = match &value.fields.uid {
+        Patch::Value(value) if !value.is_empty() => Some(value.clone()),
+        Patch::Missing | Patch::Value(_) => None,
+    };
     let payload = EventPayload {
         occurrence_start: value.occurrence_start,
         account_id: value.account_id,
+        uid,
         long_id: value.long_id,
         collection_id: value.collection_id,
         server_id: value.server_id,
@@ -103,13 +110,17 @@ pub(super) fn encode_event(value: BackendEvent) -> Result<String> {
 pub(super) fn decode_event(value: &str) -> Result<BackendEvent> {
     let payload: EventPayload = decode("event", value)?;
     validate_event(&payload)?;
+    let mut fields = CalendarFields::default();
+    if let Some(uid) = payload.uid {
+        fields.uid = Patch::Value(uid);
+    }
     Ok(BackendEvent {
         occurrence_start: payload.occurrence_start,
         account_id: payload.account_id,
         long_id: payload.long_id,
         collection_id: payload.collection_id,
         server_id: payload.server_id,
-        fields: CalendarFields::default(),
+        fields,
     })
 }
 
@@ -193,6 +204,9 @@ fn validate_event(payload: &EventPayload) -> Result<()> {
         return Err(invalid());
     }
     validate_required(&payload.account_id, MAX_ACCOUNT_BYTES)?;
+    if let Some(value) = &payload.uid {
+        validate_required(value, MAX_LOCATOR_BYTES)?;
+    }
     validate_optional(&payload.long_id, MAX_LOCATOR_BYTES)?;
     if let Some(value) = &payload.collection_id {
         validate_required(value, MAX_LOCATOR_BYTES)?;

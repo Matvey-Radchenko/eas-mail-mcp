@@ -82,7 +82,7 @@ pub(in crate::runtime) fn apply_exception(
         event.ends_at = value;
     }
     if let Patch::Value(value) = fields.reminder_minutes {
-        event.reminder_minutes = Some(value);
+        event.reminder_minutes = value;
     }
     if let Some(properties) = &fields.properties {
         if properties.sensitivity.is_some() {

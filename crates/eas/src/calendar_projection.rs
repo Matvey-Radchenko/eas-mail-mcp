@@ -12,7 +12,7 @@ impl From<&CalendarApplication> for CalendarFields {
             all_day: Patch::Value(item.all_day),
             location: Patch::Value(item.location.clone()),
             attendees: Patch::Value(item.attendees.clone()),
-            reminder_minutes: item.reminder_minutes.map_or(Patch::Missing, Patch::Value),
+            reminder_minutes: Patch::Value(item.reminder_minutes),
             recurrence: Patch::Value(
                 item.properties
                     .recurrence

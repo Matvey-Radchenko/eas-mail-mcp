@@ -195,6 +195,32 @@ pub fn calendar_change(id: &str, subject: &str) -> Element {
     command
 }
 
+pub fn calendar_uid_change(server_id: &str, uid: &str) -> Element {
+    let mut add = Element::new("AirSync", "Add");
+    add.push(Element::text("AirSync", "ServerId", server_id));
+    let mut application = Element::new("AirSync", "ApplicationData");
+    application.push(Element::text("Calendar", "UID", uid));
+    add.push(application);
+    add
+}
+
+pub fn calendar_item_response(
+    collection_id: &str,
+    server_id: &str,
+    uid: &str,
+) -> eas_mail_protocol::Result<Vec<u8>> {
+    let mut root = Element::new("ItemOperations", "ItemOperations");
+    let mut fetch = Element::new("ItemOperations", "Fetch");
+    fetch.push(Element::text("ItemOperations", "Status", "1"));
+    fetch.push(Element::text("AirSync", "CollectionId", collection_id));
+    fetch.push(Element::text("AirSync", "ServerId", server_id));
+    let mut properties = Element::new("ItemOperations", "Properties");
+    properties.push(Element::text("Calendar", "UID", uid));
+    fetch.push(properties);
+    root.push(fetch);
+    encode(&root)
+}
+
 pub fn search_response() -> eas_mail_protocol::Result<Vec<u8>> {
     let mut root = Element::new("Search", "Search");
     root.push(Element::text("Search", "Status", "1"));

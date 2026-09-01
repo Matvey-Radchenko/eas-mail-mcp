@@ -38,8 +38,13 @@ fn calendar_sync_preserves_recurrence_exceptions_and_order() -> eas_mail_protoco
             attendee_status: 0,
         }])
     );
-    assert_eq!(fields.reminder_minutes, Patch::Value(15));
+    assert_eq!(fields.reminder_minutes, Patch::Value(Some(15)));
     assert_eq!(fields.meeting_status, Patch::Value(3));
+    let ChangeData::Calendar(change) = &page.changes[1].data else {
+        return Err(EasError::Protocol("calendar change data is missing".into()));
+    };
+    assert_eq!(change.reminder_minutes, Patch::Value(None));
+    assert!(change.properties.as_ref().is_some_and(|value| value.can_write()));
     let Patch::Value(recurrence) = &fields.recurrence else {
         return Err(EasError::Protocol("recurrence is missing".into()));
     };
@@ -184,6 +189,9 @@ fn calendar_command(name: &str, id: &str, complete: bool) -> Element {
     let mut command = id_command(name, id);
     let mut data = Element::new("AirSync", "ApplicationData");
     data.push(Element::text("Calendar", "Subject", if complete { "Planning" } else { "" }));
+    if !complete {
+        data.push(Element::new("Calendar", "Reminder"));
+    }
     if complete {
         data.push(Element::text("Calendar", "StartTime", "20260102T030405Z"));
         data.push(Element::text("Calendar", "EndTime", "2026-01-02T04:04:05Z"));
