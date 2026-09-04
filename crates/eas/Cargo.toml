@@ -10,7 +10,8 @@ publish = false
 async-trait.workspace = true
 base64.workspace = true
 chrono.workspace = true
-eas-mail-profile = { version = "=0.5.1", path = "../profile" }
+eas-mail-profile = { version = "=1.0.0", path = "../profile" }
+mail-builder.workspace = true
 quick-xml.workspace = true
 reqwest.workspace = true
 serde.workspace = true

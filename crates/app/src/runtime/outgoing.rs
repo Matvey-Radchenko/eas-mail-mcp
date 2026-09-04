@@ -33,6 +33,7 @@ pub(super) fn reply_message(
         bcc: Vec::new(),
         subject: prefix_subject("Re:", string(&mail.fields.subject)),
         body: input.body.clone(),
+        attachments: Vec::new(),
     })
 }
 
@@ -43,6 +44,7 @@ pub(super) fn forward_message(mail: &BackendMail, input_body: &str) -> OutgoingM
         bcc: Vec::new(),
         subject: prefix_subject("Fwd:", string(&mail.fields.subject)),
         body: input_body.into(),
+        attachments: Vec::new(),
     }
 }
 
@@ -113,6 +115,7 @@ mod tests {
             bcc: Vec::new(),
             subject: "Subject".into(),
             body,
+            attachments: Vec::new(),
         }
     }
 

@@ -60,11 +60,7 @@ fn build_class_search(
 
 /// Parses ordered server-side mail search results.
 pub fn parse_search(data: &[u8]) -> Result<Vec<SearchMail>> {
-    parse_search_results(data, |properties| SearchMail {
-        long_id: String::new(),
-        fields: parse_mail_fields(properties),
-    })
-    .map(|(items, _)| items)
+    super::mail_search::parse_mail_search(data).map(|page| page.items)
 }
 
 /// Parses ordered server-side Calendar Search results and their total count.
@@ -119,17 +115,6 @@ trait SearchResult {
         collection_id: Option<String>,
         server_id: Option<String>,
     );
-}
-
-impl SearchResult for SearchMail {
-    fn set_source(
-        &mut self,
-        long_id: String,
-        _collection_id: Option<String>,
-        _server_id: Option<String>,
-    ) {
-        self.long_id = long_id;
-    }
 }
 
 impl SearchResult for SearchCalendar {
@@ -187,8 +172,11 @@ pub fn build_item_fetch(
 
 /// Parses a full ItemOperations mail result.
 pub fn parse_item_fetch(data: &[u8]) -> Result<ItemResult> {
-    parse_item_properties(data)
-        .map(|result| ItemResult { fields: parse_mail_fields(&result.properties) })
+    parse_item_properties(data).map(|result| ItemResult {
+        collection_id: result.collection_id,
+        server_id: result.server_id,
+        fields: parse_mail_fields(&result.properties),
+    })
 }
 
 /// Parses a full ItemOperations calendar result.

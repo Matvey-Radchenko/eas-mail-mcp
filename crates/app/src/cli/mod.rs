@@ -1,7 +1,12 @@
 mod account_secrets;
 mod accounts;
+mod cache;
 mod clients;
+#[doc(hidden)]
+pub mod contract;
 mod doctor;
+mod exit;
+mod operation_journal;
 mod operations;
 mod profiles;
 mod setup;
@@ -17,6 +22,7 @@ use eas_mail_protocol::ProfileKey;
 use self::terminal::{StdioTerminal, Terminal as _};
 use crate::profiles::require_profile_registry;
 use crate::{AppError, ErrorCode, Paths, Result, Runtime, load_config, load_profile_registry};
+pub use exit::CliExit;
 
 /// Direct stdio MCP, operational CLI, and local administration.
 #[derive(Debug, Parser)]
@@ -40,6 +46,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Inspect content-free operation history without accessing Exchange.
+    Operation {
+        #[command(subcommand)]
+        command: operation_journal::OperationCommand,
+    },
     /// Run the MCP server over stdin/stdout.
     Serve,
     /// Configure endpoint profiles, accounts, AI clients, and diagnostics.
@@ -70,7 +81,12 @@ enum Command {
         command: Box<operations::CalendarCommand>,
     },
     /// Run redacted configuration and live EAS diagnostics.
-    Doctor,
+    Doctor(doctor::DoctorArgs),
+    /// Inspect or clear locally downloaded attachments.
+    Cache {
+        #[command(subcommand)]
+        command: cache::CacheCommand,
+    },
     /// Register or remove the MCP from an AI client.
     Client {
         #[command(subcommand)]
@@ -287,29 +303,6 @@ enum ClientCommand {
     Unconfigure(ClientArgs),
 }
 
-/// Process exit category returned after a successfully parsed CLI command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CliExit {
-    /// The command completed successfully.
-    Success,
-    /// The user declined an interactive mutation.
-    Declined,
-    /// Exchange returned a failed, partial, or unknown mutation outcome.
-    WriteNotSucceeded,
-}
-
-impl CliExit {
-    /// Returns the documented process exit code.
-    #[must_use]
-    pub const fn code(self) -> u8 {
-        match self {
-            Self::Success => 0,
-            Self::Declined => 2,
-            Self::WriteNotSucceeded => 3,
-        }
-    }
-}
-
 #[derive(Debug, Args)]
 struct ClientArgs {
     /// Supported AI client.
@@ -422,11 +415,9 @@ async fn run_production(cli: Cli) -> Result<CliExit> {
             let runtime = production_runtime(&paths)?;
             operations::calendar(&runtime, *command, output_mode).await
         }
-        Command::Doctor => {
-            let profiles = load_profile_registry(&paths.profiles)?;
-            emit(&doctor::run(&paths, profiles.as_ref()).await?)?;
-            Ok(CliExit::Success)
-        }
+        Command::Operation { command } => operation_journal::run(&paths, command),
+        Command::Doctor(arguments) => doctor::execute(&paths, arguments).await,
+        Command::Cache { command } => cache::run(&paths, command, &mut terminal),
         Command::Client { command } => {
             emit(&clients::run(&paths, command)?)?;
             Ok(CliExit::Success)

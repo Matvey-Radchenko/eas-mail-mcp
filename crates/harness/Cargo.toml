@@ -14,6 +14,11 @@ performance = []
 soak = []
 
 [[bin]]
+name = "contract-dump"
+path = "src/bin/contract-dump.rs"
+test = false
+
+[[bin]]
 name = "harness-server"
 path = "src/bin/harness-server.rs"
 test = false
@@ -42,6 +47,24 @@ required-features = ["live"]
 test = false
 
 [[bin]]
+name = "mail-lifecycle-live"
+path = "src/bin/mail-lifecycle-live.rs"
+required-features = ["live"]
+test = false
+
+[[bin]]
+name = "calendar-lifecycle-live"
+path = "src/bin/calendar-lifecycle-live.rs"
+required-features = ["live"]
+test = false
+
+[[bin]]
+name = "mail-read-probe"
+path = "src/bin/mail-read-probe.rs"
+required-features = ["live"]
+test = false
+
+[[bin]]
 name = "live-harness"
 path = "src/bin/live-harness.rs"
 required-features = ["live"]
@@ -66,8 +89,8 @@ required-features = ["soak"]
 test = false
 
 [dependencies]
-eas-mail-protocol = { version = "=0.5.1", path = "../eas" }
-eas-mail-mcp = { version = "=0.5.1", path = "../app" }
+eas-mail-protocol = { version = "=1.0.0", path = "../eas" }
+eas-mail-mcp = { version = "=1.0.0", path = "../app" }
 anyhow.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
@@ -75,6 +98,7 @@ clap.workspace = true
 rmcp = { workspace = true, features = ["client", "transport-child-process"] }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 toml.workspace = true

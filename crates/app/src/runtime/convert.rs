@@ -156,6 +156,26 @@ fn mail_summary(mail_ref: String, mail: &BackendMail) -> MailSummary {
         preview,
         is_read: boolean(&mail.fields.is_read),
         has_attachments: !list(&mail.fields.attachments).is_empty(),
+        flag: match &mail.fields.flag {
+            Patch::Value(flag) => match flag
+                .child("Email", "Status")
+                .map(eas_mail_protocol::wbxml::Element::text_content)
+                .as_deref()
+            {
+                Some("0") | None if flag.children().next().is_none() => {
+                    Some(crate::MailFlagState::None)
+                }
+                Some("0") => Some(crate::MailFlagState::None),
+                Some("1") => Some(crate::MailFlagState::Complete),
+                Some("2") => Some(crate::MailFlagState::Active),
+                _ => None,
+            },
+            Patch::Missing => None,
+        },
+        categories: match &mail.fields.categories {
+            Patch::Value(value) => Some(value.clone()),
+            Patch::Missing => None,
+        },
         calendar_message,
         can_respond,
         untrusted_external_content: true,

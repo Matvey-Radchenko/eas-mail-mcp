@@ -6,6 +6,7 @@ use eas_mail_mcp::{
 };
 
 use super::super::checks::required;
+use super::super::write_outcome::{incomplete, must_stop};
 use super::LiveAccount;
 use super::lookup::{self, ExpectedEvent};
 
@@ -98,12 +99,18 @@ pub fn succeeded(
     operation: &str,
 ) -> anyhow::Result<CalendarOperationResult> {
     let result = required(response, operation)?;
+    if matches!(result.status, CalendarOperationState::Partial | CalendarOperationState::Unknown) {
+        let state =
+            if result.status == CalendarOperationState::Partial { "Partial" } else { "Unknown" };
+        return Err(incomplete(operation, state, Some(&result.operation_id))
+            .context(format!("confirmed Calendar steps: {:?}", result.completed_steps)));
+    }
     anyhow::ensure!(
         result.status == CalendarOperationState::Succeeded,
-        "{operation} returned {:?} after steps {:?}: {}",
+        "{operation} returned {:?} after steps {:?}; operation_id={}",
         result.status,
         result.completed_steps,
-        result.message
+        result.operation_id
     );
     Ok(result)
 }
@@ -171,8 +178,30 @@ pub fn combine_with_cleanup(
         (Ok(()), Ok(())) => Ok(()),
         (Err(error), Ok(())) => Err(error),
         (Ok(()), Err(error)) => Err(error),
+        (Err(error), Err(cleanup_error)) if must_stop(&cleanup_error) => {
+            Err(cleanup_error.context(format!("Earlier Calendar lifecycle failure: {error}")))
+        }
         (Err(error), Err(cleanup_error)) => {
             Err(error.context(format!("Calendar cleanup also failed: {cleanup_error}")))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn incomplete_cleanup_keeps_typed_marker_and_operation_identity() -> anyhow::Result<()> {
+        let operation = "11111111-2222-4333-8444-555555555555";
+        let cleanup = incomplete("calendar_delete", "Unknown", Some(operation));
+        let error = combine_with_cleanup(Err(anyhow::anyhow!("earlier read failed")), Err(cleanup))
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("expected failed cleanup"))?
+            .context("outer lifecycle");
+        assert!(must_stop(&error));
+        assert!(format!("{error:#}").contains(operation));
+        assert!(format!("{error:#}").contains("Unknown"));
+        Ok(())
     }
 }

@@ -7,10 +7,17 @@ distributed through platform-restricted npm packages for macOS and Windows.
 
 ## Reporting a vulnerability
 
-Use GitHub's private vulnerability reporting for this repository. Do not place
+Use [GitHub's private vulnerability reporting](https://github.com/Matvey-Radchenko/eas-mail-mcp/security/advisories/new)
+for this repository. Do not place
 credentials, mailbox content, private endpoint metadata, or internal trust
 material in a public issue. Include the affected commit, reproduction steps,
 and the expected security boundary.
+
+The latest stable release receives fixes; there is no promised maintenance or
+backport window for older versions. Ordinary bugs and recovery questions follow
+[SUPPORT.md](SUPPORT.md). A `doctor --report` file uses a separate allowlist
+schema; normal CLI output, configuration, client backups, and transport logs
+must not be assumed safe to publish.
 
 ## Trust boundary
 
@@ -56,9 +63,14 @@ configuration or environment variables.
 ## Secrets and content
 
 Passwords, Device IDs, policy state, and the HMAC key are not `Debug` values and
-are stored in macOS Keychain or Windows Credential Manager. SQLite contains only idempotency metadata and
-keyed payload hashes. Mail and calendar data stays in process memory, except for
-explicitly downloaded attachments in a private 24-hour cache.
+are stored in macOS Keychain or Windows Credential Manager. SQLite contains only
+idempotency metadata, minimal result locators, and keyed payload hashes. Mail and
+calendar data stays in process memory, except for explicitly downloaded
+attachments. Attachments become eligible for cleanup after 24 hours; cleanup is
+lazy at startup and before downloads. `cache clear` removes downloads without
+deleting write history. Outgoing attachment paths are read only when explicitly
+supplied to a write; file contents participate in the payload fingerprint and
+are not copied into SQLite.
 
 On Windows, these non-secret runtime files are rooted at
 `%LOCALAPPDATA%\EAS Mail MCP`. Reparse points are rejected for application-owned

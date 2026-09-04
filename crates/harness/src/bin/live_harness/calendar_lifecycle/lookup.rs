@@ -166,6 +166,7 @@ async fn search_mail(
     required(
         runtime
             .mail_search(MailSearchInput {
+                filters: Default::default(),
                 query: MEETING_SEARCH_QUERY.to_owned(),
                 account_ids: Some(vec![account_id.to_owned()]),
                 cursor: None,

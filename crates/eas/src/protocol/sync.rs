@@ -160,7 +160,27 @@ pub(super) fn parse_mail_fields(application: &Element) -> MailFields {
         meeting_request: application
             .child("Email", "MeetingRequest")
             .map_or(Patch::Missing, |value| Patch::Value(parse_meeting_request(value))),
+        conversation_id: binary_mail_patch(application, "ConversationId"),
+        conversation_index: binary_mail_patch(application, "ConversationIndex"),
+        flag: application
+            .child("Email", "Flag")
+            .map_or(Patch::Missing, |flag| Patch::Value(flag.clone())),
+        categories: application.child("Email", "Categories").map_or(Patch::Missing, |categories| {
+            Patch::Value(
+                categories
+                    .children()
+                    .filter(|item| item.namespace == "Email" && item.name == "Category")
+                    .map(Element::text_content)
+                    .collect(),
+            )
+        }),
     }
+}
+
+fn binary_mail_patch(application: &Element, name: &str) -> Patch<Vec<u8>> {
+    application.child("Email2", name).map_or(Patch::Missing, |value| {
+        value.opaque_content().map_or(Patch::Missing, |bytes| Patch::Value(bytes.to_vec()))
+    })
 }
 
 fn parse_meeting_request(value: &Element) -> MeetingRequest {

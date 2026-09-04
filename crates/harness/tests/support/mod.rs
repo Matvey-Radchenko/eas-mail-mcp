@@ -229,7 +229,12 @@ pub fn search_response() -> eas_mail_protocol::Result<Vec<u8>> {
     let mut properties = Element::new("Search", "Properties");
     properties.push(Element::text("Email", "Subject", "Found"));
     result.push(properties);
-    root.push(result);
+    let mut response = Element::new("Search", "Response");
+    let mut store = Element::new("Search", "Store");
+    store.push(Element::text("Search", "Status", "1"));
+    store.push(result);
+    response.push(store);
+    root.push(response);
     encode(&root)
 }
 
@@ -258,9 +263,12 @@ pub fn attachment_response(bytes: &[u8]) -> eas_mail_protocol::Result<Vec<u8>> {
 pub fn mutation_response(key: &str, status: u16) -> eas_mail_protocol::Result<Vec<u8>> {
     let mut root = Element::new("AirSync", "Sync");
     let mut collection = Element::new("AirSync", "Collection");
+    collection.push(Element::text("AirSync", "CollectionId", "inbox"));
+    collection.push(Element::text("AirSync", "Status", "1"));
     collection.push(Element::text("AirSync", "SyncKey", key));
     let mut responses = Element::new("AirSync", "Responses");
     let mut change = Element::new("AirSync", "Change");
+    change.push(Element::text("AirSync", "ServerId", "message-1"));
     change.push(Element::text("AirSync", "Status", status.to_string()));
     responses.push(change);
     collection.push(responses);
@@ -313,6 +321,7 @@ pub fn wipe_response() -> eas_mail_protocol::Result<Vec<u8>> {
 
 pub fn outgoing() -> OutgoingMail {
     OutgoingMail {
+        attachments: Vec::new(),
         to: vec!["recipient@example.com".into()],
         cc: Vec::new(),
         bcc: Vec::new(),

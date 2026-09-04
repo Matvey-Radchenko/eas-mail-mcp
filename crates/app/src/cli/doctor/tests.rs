@@ -6,6 +6,27 @@
 use super::*;
 use crate::{JournalRecord, OperationJournal as _, OperationStatus, SqliteJournal};
 
+#[tokio::test]
+async fn default_doctor_keeps_success_and_check_sets_unhealthy_exit() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let paths = Paths {
+        support: directory.path().join("support"),
+        attachments: directory.path().join("attachments"),
+        config: directory.path().join("support/config.toml"),
+        profiles: directory.path().join("support/profiles.toml"),
+        journal: directory.path().join("support/operations.sqlite"),
+    };
+    paths.ensure()?;
+    let default = execute(&paths, DoctorArgs { check: false, report: None }).await?;
+    assert_eq!(default, crate::cli::CliExit::Success);
+    let report = directory.path().join("report.json");
+    let checked = execute(&paths, DoctorArgs { check: true, report: Some(report.clone()) }).await?;
+    assert_eq!(checked.code(), 1);
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(report)?)?;
+    assert_eq!(value.get("healthy").and_then(serde_json::Value::as_bool), Some(false));
+    Ok(())
+}
+
 #[test]
 fn redacted_failure_exposes_no_internal_error_text() {
     let value = redacted_failure(

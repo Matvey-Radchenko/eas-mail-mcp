@@ -1,9 +1,11 @@
+mod auto_reply;
 mod calendar;
 mod calendar_agenda;
 mod calendar_binding;
 mod calendar_write;
 mod calendar_write_model;
 mod content;
+mod mail_properties;
 mod meeting_response;
 mod mutations;
 mod session;

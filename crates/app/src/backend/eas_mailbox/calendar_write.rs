@@ -4,8 +4,8 @@ use eas_mail_protocol::{
 
 use super::super::{BackendCalendarMutation, BackendEvent};
 use super::calendar_write_model::{
-    backend_event, calendar_filter, current_calendar_key, missing_during, require_status,
-    required_string, source_ids, validate_mutation,
+    backend_event, calendar_change_payload, calendar_filter, current_calendar_key, missing_during,
+    require_status, required_string, source_ids, validate_mutation,
 };
 use super::session::{CollectionState, EasMailbox, SessionState};
 use crate::{AppError, ErrorCode, Result};
@@ -61,13 +61,14 @@ impl EasMailbox {
         self.ensure_ready(&mut state).await?;
         self.require_personal_calendar_writes(&state)?;
         let sync_key = self.initialize_calendar(&mut state, collection_id).await?;
+        let payload = calendar_change_payload(&source, &item.application);
         let (result, current_server_id) = self
             .calendar_change_with_recovery(
                 &mut state,
                 collection_id,
                 server_id,
                 &sync_key,
-                &item.application,
+                &payload,
             )
             .await?;
         self.apply_mutation_key(&mut state, collection_id, result.sync_key)?;

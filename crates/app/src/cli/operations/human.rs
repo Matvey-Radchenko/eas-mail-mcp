@@ -12,13 +12,25 @@ pub(super) fn render(value: &Value, kind: OutputKind) -> Result<String> {
         }),
         OutputKind::MailList => list(value, "/items", mail_line),
         OutputKind::MailDetail => mail_detail(value),
+        OutputKind::AutoReply => Ok(auto_reply(value)),
+        OutputKind::MailThread => {
+            let items = value.get("items").and_then(Value::as_array).ok_or_else(invalid_output)?;
+            let body = items.iter().map(mail_detail).collect::<Result<Vec<_>>>()?.join("\n\n");
+            Ok(format!(
+                "Messages truncated: {}. Bodies truncated: {}.\n\n{body}",
+                field(value, "results_truncated"),
+                field(value, "bodies_truncated")
+            ))
+        }
         OutputKind::Attachments => list(value, "/attachments", attachment_line),
         OutputKind::Download => download(value),
         OutputKind::Availability => availability(value),
-        OutputKind::Slots => list(value, "/windows", slot_line),
+        OutputKind::Slots => super::human_slots::render(value, false),
+        OutputKind::RecurringSlots => super::human_slots::render(value, true),
         OutputKind::CalendarList => list(value, "/items", event_line),
         OutputKind::CalendarEvent => calendar_event(value),
         OutputKind::Write => write_result(value),
+        OutputKind::Bulk => serde_json::to_string_pretty(value).map_err(|_| invalid_output()),
     }
 }
 
@@ -68,6 +80,32 @@ fn mail_detail(value: &Value) -> Result<String> {
     ))
 }
 
+fn auto_reply(value: &Value) -> String {
+    let mut lines = vec![format!(
+        "Account: {}\nState: {}\nStart: {}\nEnd: {}",
+        field(value, "account_id"),
+        field(value, "state"),
+        field(value, "starts_at"),
+        field(value, "ends_at")
+    )];
+    for (key, label) in [
+        ("internal", "Internal"),
+        ("external_known", "External contacts"),
+        ("external_unknown", "Other external senders"),
+    ] {
+        if let Some(message) = value.get(key).filter(|value| !value.is_null()) {
+            lines.push(format!(
+                "{label}: enabled {}\n{}",
+                field(message, "enabled"),
+                field(message, "message")
+            ));
+        } else {
+            lines.push(format!("{label}: not returned by Exchange"));
+        }
+    }
+    lines.join("\n\n")
+}
+
 fn attachment_line(value: &Value) -> String {
     format!(
         "{}  {} bytes  {}\n  ref: {}",
@@ -111,15 +149,6 @@ fn availability(value: &Value) -> Result<String> {
         }
     }
     Ok(lines.join("\n"))
-}
-
-fn slot_line(value: &Value) -> String {
-    format!(
-        "{} - {}  latest start {}",
-        field(value, "window_start"),
-        field(value, "window_end"),
-        field(value, "latest_start")
-    )
 }
 
 fn event_line(value: &Value) -> String {

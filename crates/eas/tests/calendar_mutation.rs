@@ -142,10 +142,12 @@ fn mutation_response(account: u16, collection: u16, item: u16) -> Element {
     root.push(Element::text("AirSync", "Status", account.to_string()));
     let mut collections = Element::new("AirSync", "Collections");
     let mut collection_element = Element::new("AirSync", "Collection");
+    collection_element.push(Element::text("AirSync", "CollectionId", "calendar"));
     collection_element.push(Element::text("AirSync", "Status", collection.to_string()));
     collection_element.push(Element::text("AirSync", "SyncKey", "42"));
     let mut responses = Element::new("AirSync", "Responses");
     let mut add = Element::new("AirSync", "Add");
+    add.push(Element::text("AirSync", "ClientId", "client-1"));
     add.push(Element::text("AirSync", "Status", item.to_string()));
     add.push(Element::text("AirSync", "ServerId", "server-2"));
     responses.push(add);

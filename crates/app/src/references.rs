@@ -8,7 +8,7 @@ mod object;
 pub(crate) use object::{AttachmentReference, MeetingReference};
 
 use crate::backend::{BackendEvent, BackendMail};
-use crate::model::MailSummary;
+use crate::model::{MailPage, MailSearchCoverage, MailSummary, Warning};
 use crate::{AppError, ErrorCode, Result};
 
 const LIFETIME_MINUTES: i64 = 15;
@@ -49,7 +49,7 @@ impl IdGenerator for RandomIds {
 
 #[derive(Clone)]
 enum Snapshot {
-    Mail(Arc<Vec<MailSummary>>),
+    Mail { items: Arc<Vec<MailSummary>>, coverage: Vec<MailSearchCoverage>, warnings: Vec<Warning> },
 }
 
 #[derive(Clone)]
@@ -125,15 +125,39 @@ impl References {
         items: Vec<MailSummary>,
         limit: usize,
     ) -> Result<(Vec<MailSummary>, Option<String>)> {
-        self.first_page(Snapshot::Mail(Arc::new(items)), limit).and_then(mail_page)
+        self.first_page(
+            Snapshot::Mail { items: Arc::new(items), coverage: Vec::new(), warnings: Vec::new() },
+            limit,
+        )
+        .and_then(mail_page)
     }
 
+    #[cfg(test)]
     pub(super) fn next_mail_page(
         &self,
         cursor: &str,
         limit: usize,
     ) -> Result<(Vec<MailSummary>, Option<String>)> {
         self.next_page(cursor, limit).and_then(mail_page)
+    }
+
+    pub(super) fn first_search_page(
+        &self,
+        items: Vec<MailSummary>,
+        coverage: Vec<MailSearchCoverage>,
+        warnings: Vec<Warning>,
+        limit: usize,
+    ) -> Result<(MailPage, Vec<Warning>)> {
+        self.first_page(Snapshot::Mail { items: Arc::new(items), coverage, warnings }, limit)
+            .and_then(search_page)
+    }
+
+    pub(super) fn next_search_page(
+        &self,
+        cursor: &str,
+        limit: usize,
+    ) -> Result<(MailPage, Vec<Warning>)> {
+        self.next_page(cursor, limit).and_then(search_page)
     }
 
     fn first_page(&self, snapshot: Snapshot, limit: usize) -> Result<Page> {
@@ -192,7 +216,28 @@ struct Page {
 
 fn mail_page(page: Page) -> Result<(Vec<MailSummary>, Option<String>)> {
     match page.snapshot {
-        Snapshot::Mail(items) => Ok((slice(&items, page.start, page.end)?, page.next_cursor)),
+        Snapshot::Mail { items, .. } => {
+            Ok((slice(&items, page.start, page.end)?, page.next_cursor))
+        }
+    }
+}
+
+fn search_page(page: Page) -> Result<(MailPage, Vec<Warning>)> {
+    match page.snapshot {
+        Snapshot::Mail { items, coverage, warnings } => {
+            let results_truncated = coverage
+                .iter()
+                .any(|value| !value.candidates_complete || value.metadata_unknown != 0);
+            Ok((
+                MailPage {
+                    items: slice(&items, page.start, page.end)?,
+                    next_cursor: page.next_cursor,
+                    results_truncated,
+                    coverage,
+                },
+                warnings,
+            ))
+        }
     }
 }
 
@@ -202,7 +247,7 @@ fn slice<T: Clone>(items: &[T], start: usize, end: usize) -> Result<Vec<T>> {
 
 fn snapshot_len(snapshot: &Snapshot) -> usize {
     match snapshot {
-        Snapshot::Mail(items) => items.len(),
+        Snapshot::Mail { items, .. } => items.len(),
     }
 }
 
@@ -229,7 +274,7 @@ fn expires_at(now: DateTime<Utc>) -> DateTime<Utc> {
 fn expired() -> AppError {
     AppError::new(
         ErrorCode::ReferenceExpired,
-        "the process-local reference or cursor expired; run the list or search tool again",
+        "the process-local pagination cursor expired or was already consumed; run the list or search tool again",
     )
 }
 

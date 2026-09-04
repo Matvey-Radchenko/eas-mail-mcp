@@ -7,8 +7,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
-eas-mail-profile = { version = "=0.5.1", path = "../crates/profile" }
-eas-mail-protocol = { version = "=0.5.1", path = "../crates/eas" }
+eas-mail-profile = { version = "=1.0.0", path = "../crates/profile" }
+eas-mail-protocol = { version = "=1.0.0", path = "../crates/eas" }
 anyhow.workspace = true
 clap.workspace = true
 dirs.workspace = true

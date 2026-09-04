@@ -125,7 +125,10 @@ async fn add_account(
                     .unwrap_or(false);
                 terminal.message(&format!("Account {account_id} connected successfully"))?;
                 if prompt_for_writes && writes_supported {
-                    if terminal.confirm("Enable send, reply, forward, and mark-read", false)? {
+                    if terminal.confirm(
+                        "Enable supported mail and calendar writes, including sending and automatic replies",
+                        false,
+                    )? {
                         actions.set_verified_writes(paths, &account_id)?;
                         result
                             .as_object_mut()
@@ -200,7 +203,10 @@ async fn management_loop(
                 let config = load_config(&paths.config)?;
                 let enabled =
                     config.accounts.get(&account_id).is_some_and(|account| account.write_enabled);
-                let requested = terminal.confirm("Enable write tools", enabled)?;
+                let requested = terminal.confirm(
+                    "Enable supported mail and calendar writes, including sending and automatic replies",
+                    enabled,
+                )?;
                 account_results.push(
                     actions.set_writes_checked(paths, &account_id, requested, registry).await?,
                 );

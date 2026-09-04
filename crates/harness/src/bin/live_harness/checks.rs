@@ -5,10 +5,12 @@ use eas_mail_mcp::{
     AccountSelection, ApiResponse, AttachmentDownloadInput, CalendarAvailabilityInput,
     CalendarFindSlotsInput, CalendarGetInput, CalendarSearchInput, MailAttachmentsInput,
     MailForwardInput, MailGetInput, MailListInput, MailPage, MailReplyInput, MailSearchInput,
-    MailSendInput, MailSummary, MarkReadInput, Runtime, ScheduleWeekday, WorkingHoursInput,
+    MailSendInput, MailSummary, MarkReadInput, OperationResult, OperationState, Runtime,
+    ScheduleWeekday, WorkingHoursInput,
 };
 
 use super::support::AccountReport;
+use super::write_outcome::{check_warnings, incomplete};
 
 const COLD_MAIL_TARGET: Duration = Duration::from_secs(15);
 const WARM_MAIL_TARGET: Duration = Duration::from_secs(3);
@@ -54,6 +56,7 @@ pub async fn check_account(
     let search = required(
         runtime
             .mail_search(MailSearchInput {
+                filters: Default::default(),
                 query: search_query,
                 account_ids: selection,
                 cursor: None,
@@ -77,7 +80,7 @@ pub async fn check_account(
             .find(|folder| folder.role == "inbox")
             .map(|folder| folder.folder_id.as_str())
             .ok_or_else(|| anyhow::anyhow!("folders_list returned no EAS Inbox"))?;
-        check_writes(runtime, account_id, email, inbox_id, &first.mail_ref, first.is_read).await?;
+        check_writes(runtime, account_id, email, inbox_id).await?;
     }
     Ok(AccountReport {
         account_id: account_id.to_owned(),
@@ -125,6 +128,8 @@ async fn check_calendar(
                 working_hours,
                 duration_minutes: 30,
                 allow_tentative: false,
+                buffer_minutes: 0,
+                participant_options: Vec::new(),
                 limit: Some(20),
             })
             .await,
@@ -240,13 +245,12 @@ async fn check_writes(
     account_id: &str,
     email: &str,
     inbox_id: &str,
-    original_ref: &str,
-    original_read: bool,
 ) -> anyhow::Result<()> {
     let subject = format!("EAS Mail MCP self-test {}", uuid::Uuid::new_v4());
-    required(
+    mail_succeeded(
         runtime
             .mail_send(MailSendInput {
+                attachments: Vec::new(),
                 account_id: account_id.to_owned(),
                 to: vec![email.to_owned()],
                 cc: Vec::new(),
@@ -259,9 +263,10 @@ async fn check_writes(
         "mail_send",
     )?;
     let sent_ref = wait_for_mail(runtime, account_id, inbox_id, &subject).await?;
-    required(
+    mail_succeeded(
         runtime
             .mail_reply(MailReplyInput {
+                attachments: Vec::new(),
                 mail_ref: sent_ref.clone(),
                 body: "Automated self-reply test.".into(),
                 reply_all: false,
@@ -270,10 +275,11 @@ async fn check_writes(
             .await,
         "mail_reply",
     )?;
-    required(
+    mail_succeeded(
         runtime
             .mail_forward(MailForwardInput {
-                mail_ref: sent_ref,
+                attachments: Vec::new(),
+                mail_ref: sent_ref.clone(),
                 to: vec![email.to_owned()],
                 cc: Vec::new(),
                 bcc: Vec::new(),
@@ -283,28 +289,26 @@ async fn check_writes(
             .await,
         "mail_forward",
     )?;
-    let toggle = required(
+    mail_succeeded(
         runtime
             .mail_mark_read(MarkReadInput {
-                mail_ref: original_ref.to_owned(),
-                is_read: !original_read,
+                mail_ref: sent_ref.clone(),
+                is_read: false,
                 idempotency_key: operation_id(),
             })
             .await,
         "mail_mark_read toggle",
-    );
-    let restore = required(
+    )?;
+    mail_succeeded(
         runtime
             .mail_mark_read(MarkReadInput {
-                mail_ref: original_ref.to_owned(),
-                is_read: original_read,
+                mail_ref: sent_ref,
+                is_read: true,
                 idempotency_key: operation_id(),
             })
             .await,
         "mail_mark_read restore",
-    );
-    restore?;
-    toggle?;
+    )?;
     Ok(())
 }
 
@@ -335,10 +339,36 @@ async fn wait_for_mail(
 }
 
 pub(super) fn required<T>(response: ApiResponse<T>, operation: &str) -> anyhow::Result<T> {
+    check_warnings(&response, operation)?;
     if let Some(error) = response.error {
-        anyhow::bail!("{operation} failed with {:?}: {}", error.code, error.message);
+        if error.code == eas_mail_mcp::ErrorCode::OutcomeUnknown {
+            return Err(incomplete(operation, "Unknown", error.operation_id.as_deref()));
+        }
+        anyhow::bail!(
+            "{operation} failed with {:?}; operation_id={:?}: {}",
+            error.code,
+            error.operation_id,
+            error.message
+        );
     }
     response.data.ok_or_else(|| anyhow::anyhow!("{operation} returned no data"))
+}
+
+pub(super) fn mail_succeeded(
+    response: ApiResponse<OperationResult>,
+    operation: &str,
+) -> anyhow::Result<OperationResult> {
+    let result = required(response, operation)?;
+    if result.status == OperationState::Unknown {
+        return Err(incomplete(operation, "Unknown", Some(&result.operation_id)));
+    }
+    anyhow::ensure!(
+        result.status == OperationState::Succeeded,
+        "{operation} returned {:?}; operation_id={}",
+        result.status,
+        result.operation_id
+    );
+    Ok(result)
 }
 
 fn operation_id() -> String {

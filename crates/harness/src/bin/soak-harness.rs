@@ -12,6 +12,7 @@ use rmcp::service::{RoleClient, RunningService};
 use rmcp::transport::{ConfigureCommandExt as _, TokioChildProcess};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
+use sha2::{Digest as _, Sha256};
 
 const CLIENTS: [(&str, &str); 3] =
     [("codex-mcp-client", "0.133.0"), ("claude-ai", "0.1.0"), ("opencode", "1.0.0")];
@@ -26,12 +27,18 @@ struct Arguments {
     hours: u64,
     #[arg(long, default_value_t = 300)]
     interval_seconds: u64,
+    #[arg(long)]
+    report: Option<PathBuf>,
 }
 
 #[derive(Debug, Serialize)]
 struct Report {
     duration_hours: u64,
+    elapsed_seconds: u64,
+    started_at: chrono::DateTime<chrono::Utc>,
+    application_sha256: String,
     clients: usize,
+    client_kind: &'static str,
     cycles_per_client: usize,
     acceptance_passed: bool,
 }
@@ -49,6 +56,18 @@ async fn main() -> Result<()> {
     let duration = Duration::from_secs(
         arguments.hours.checked_mul(3_600).context("soak duration is too large")?,
     );
+    let started = Instant::now();
+    let mut report = Report {
+        duration_hours: arguments.hours,
+        elapsed_seconds: 0,
+        started_at: chrono::Utc::now(),
+        application_sha256: binary_hash(&arguments.application)?,
+        clients: CLIENTS.len(),
+        client_kind: "synthetic SDK sessions using supported client initialization profiles",
+        cycles_per_client: 0,
+        acceptance_passed: false,
+    };
+    save_report(arguments.report.as_deref(), &report)?;
     let deadline = Instant::now().checked_add(duration).context("soak deadline is invalid")?;
     let mut sessions = connect_clients(&arguments.application).await?;
     let mut cycles = 0;
@@ -59,6 +78,9 @@ async fn main() -> Result<()> {
                 .with_context(|| format!("{} failed cycle {}", session.name, cycles + 1))?;
         }
         cycles += 1;
+        report.cycles_per_client = cycles;
+        report.elapsed_seconds = started.elapsed().as_secs();
+        save_report(arguments.report.as_deref(), &report)?;
         let now = Instant::now();
         if now >= deadline {
             break;
@@ -71,16 +93,34 @@ async fn main() -> Result<()> {
     for session in sessions.drain(..) {
         session.service.cancel().await?;
     }
-    serde_json::to_writer_pretty(
-        io::stdout().lock(),
-        &Report {
-            duration_hours: arguments.hours,
-            clients: CLIENTS.len(),
-            cycles_per_client: cycles,
-            acceptance_passed: true,
-        },
-    )?;
+    anyhow::ensure!(
+        binary_hash(&arguments.application)? == report.application_sha256,
+        "application bytes changed during acceptance soak"
+    );
+    report.elapsed_seconds = started.elapsed().as_secs();
+    report.acceptance_passed = true;
+    save_report(arguments.report.as_deref(), &report)?;
+    serde_json::to_writer_pretty(io::stdout().lock(), &report)?;
     writeln!(io::stdout().lock())?;
+    Ok(())
+}
+
+fn binary_hash(path: &Path) -> Result<String> {
+    let mut file = std::fs::File::open(path).context("cannot inspect staged executable")?;
+    let mut digest = Sha256::new();
+    io::copy(&mut file, &mut digest).context("cannot hash staged executable")?;
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+fn save_report(path: Option<&Path>, report: &Report) -> Result<()> {
+    if let Some(path) = path {
+        let parent =
+            path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+        serde_json::to_writer_pretty(&mut temporary, report)?;
+        temporary.as_file().sync_all()?;
+        temporary.persist(path).context("cannot save acceptance evidence")?;
+    }
     Ok(())
 }
 

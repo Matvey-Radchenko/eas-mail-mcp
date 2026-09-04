@@ -15,6 +15,24 @@ pub enum EasError {
     /// The endpoint cannot be reached safely.
     #[error("managed Exchange endpoint is unreachable: {0}")]
     Network(String),
+    /// Exchange rejected the request because its rate limit was reached.
+    #[error("Exchange throttled the request")]
+    Throttled {
+        /// Server-supplied retry delay, when available.
+        retry_after_seconds: Option<u64>,
+    },
+    /// A read received an HTTP service-unavailable response.
+    #[error("Exchange HTTP service is temporarily unavailable")]
+    HttpUnavailable {
+        /// Server-supplied retry delay, when available.
+        retry_after_seconds: Option<u64>,
+    },
+    /// A response exceeds the bounded wire budget for its command.
+    #[error("Exchange response exceeds the command byte limit")]
+    ResponseTooLarge,
+    /// The bounded local request queue is full or its wait deadline elapsed.
+    #[error("local Exchange request queue is busy")]
+    ResourceBusy,
     /// A mutation may have reached Exchange before the connection failed.
     #[error("mutation outcome is unknown")]
     OutcomeUnknown,
@@ -24,6 +42,9 @@ pub enum EasError {
     /// Exchange returned an invalid or unsupported protocol response.
     #[error("EAS protocol error: {0}")]
     Protocol(String),
+    /// The server cannot support this operation without losing existing data.
+    #[error("EAS feature is unavailable: {0}")]
+    FeatureUnavailable(String),
     /// Exchange reported a retryable service-side failure.
     #[error("Exchange service is temporarily unavailable")]
     ServiceUnavailable,

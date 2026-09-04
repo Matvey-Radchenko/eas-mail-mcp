@@ -3,7 +3,7 @@ use eas_mail_mcp::{
 };
 
 #[test]
-fn pending_operation_becomes_unknown_after_process_restart() -> anyhow::Result<()> {
+fn opening_journal_preserves_pending_until_explicit_account_recovery() -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("operations.sqlite");
     let record = record("work", "fingerprint-a");
@@ -13,6 +13,14 @@ fn pending_operation_becomes_unknown_after_process_restart() -> anyhow::Result<(
         anyhow::ensure!(inserted.inserted);
     }
     let journal = SqliteJournal::open(&path)?;
+    anyhow::ensure!(
+        journal
+            .lookup(&record.operation_id)?
+            .is_some_and(|row| row.status == OperationStatus::Pending)
+    );
+    anyhow::ensure!(journal.pending_accounts()? == ["work"]);
+    anyhow::ensure!(journal.recover_account("other")? == 0);
+    anyhow::ensure!(journal.recover_account("work")? == 1);
     let existing = journal.begin(&record)?;
     anyhow::ensure!(!existing.inserted);
     anyhow::ensure!(existing.record.status == OperationStatus::Unknown);
@@ -82,7 +90,7 @@ fn legacy_journal_migrates_completed_steps_atomically() -> anyhow::Result<()> {
     let stored = journal
         .lookup("11111111-2222-4333-8444-555555555555")?
         .ok_or_else(|| anyhow::anyhow!("migrated journal row is missing"))?;
-    anyhow::ensure!(stored.status == OperationStatus::Unknown);
+    anyhow::ensure!(stored.status == OperationStatus::Pending);
     anyhow::ensure!(stored.completed_steps == 0);
     Ok(())
 }
@@ -129,3 +137,6 @@ fn record(account_id: &str, fingerprint: &str) -> JournalRecord {
         completed_steps: 0,
     }
 }
+
+#[path = "journal/reliability.rs"]
+mod reliability;

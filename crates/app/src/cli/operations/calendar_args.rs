@@ -10,6 +10,8 @@ pub(in crate::cli) enum CalendarCommand {
     Availability(CalendarAvailabilityArgs),
     /// Find common free meeting windows.
     FindSlots(CalendarFindSlotsArgs),
+    /// Rank a weekly meeting time across explicit dates and conflicts.
+    RecurringSlots(CalendarRecurringSlotsArgs),
     /// Search own-calendar event text.
     Search(CalendarSearchArgs),
     /// List a bounded own-calendar date range.
@@ -65,6 +67,18 @@ pub(in crate::cli) struct CalendarFindSlotsArgs {
     /// Maximum windows, default 20 and maximum 50.
     #[arg(long)]
     pub(super) limit: Option<u8>,
+    /// Minimum break before and after meetings, in minutes.
+    #[arg(long)]
+    pub(super) buffer: Option<u16>,
+}
+
+#[derive(Debug, Args)]
+pub(in crate::cli) struct CalendarRecurringSlotsArgs {
+    #[command(flatten)]
+    pub(super) schedule: CalendarFindSlotsArgs,
+    /// Repeated weekday: mon, tue, wed, thu, fri, sat, or sun.
+    #[arg(long)]
+    pub(super) weekday: Option<String>,
 }
 
 #[derive(Debug, Args)]

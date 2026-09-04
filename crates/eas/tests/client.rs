@@ -80,9 +80,9 @@ async fn calendar_client_methods_preserve_command_safety_and_results() -> anyhow
         response(200, search_empty()?, BTreeMap::new()),
         response(200, item_response()?, BTreeMap::new()),
         response(200, item_response()?, BTreeMap::new()),
-        response(200, mutation_response()?, BTreeMap::new()),
-        response(200, mutation_response()?, BTreeMap::new()),
-        response(200, mutation_response()?, BTreeMap::new()),
+        response(200, calendar_ack(true)?, BTreeMap::new()),
+        response(200, calendar_ack(false)?, BTreeMap::new()),
+        response(200, calendar_ack(false)?, BTreeMap::new()),
         response(200, meeting_response()?, BTreeMap::new()),
     ]));
     let client = EasClient::new(transport.clone());
@@ -115,7 +115,7 @@ async fn provision_wipe_ack_purges_transport_secrets() -> anyhow::Result<()> {
     for account_only in [false, true] {
         let transport = Arc::new(QueueTransport::with_commands(vec![
             response(200, wipe_response(account_only)?, BTreeMap::new()),
-            response(204, Vec::new(), BTreeMap::new()),
+            response(200, Vec::new(), BTreeMap::new()),
         ]));
         let client = EasClient::new(transport.clone());
         assert!(matches!(client.provision().await, Err(EasError::AccountRemoteWipe)));
@@ -167,9 +167,9 @@ async fn read_and_write_methods_parse_success_and_policy_refresh() -> anyhow::Re
         response(200, item_response()?, BTreeMap::new()),
         response(200, attachment_response()?, BTreeMap::new()),
         response(200, mutation_response()?, BTreeMap::new()),
-        response(204, Vec::new(), BTreeMap::new()),
-        response(200, compose_response(2)?, BTreeMap::new()),
-        response(200, compose_response(3)?, BTreeMap::new()),
+        response(200, Vec::new(), BTreeMap::new()),
+        response(200, compose_response(Command::SmartReply, 117)?, BTreeMap::new()),
+        response(200, compose_response(Command::SmartForward, 150)?, BTreeMap::new()),
         response(449, Vec::new(), BTreeMap::new()),
     ];
     let transport = Arc::new(QueueTransport::with_commands(commands));
@@ -187,7 +187,7 @@ async fn read_and_write_methods_parse_success_and_policy_refresh() -> anyhow::Re
             .smart_compose(5, false, "client", ComposeSource::LongId("long"), b"mime".to_vec())
             .await?
             .status,
-        2
+        117
     );
     assert_eq!(
         client
@@ -200,7 +200,7 @@ async fn read_and_write_methods_parse_success_and_policy_refresh() -> anyhow::Re
             )
             .await?
             .status,
-        3
+        150
     );
     assert!(matches!(
         client.search(5, "query", 0, 5, 500).await,
@@ -279,6 +279,27 @@ fn calendar_application() -> anyhow::Result<CalendarApplication> {
         response_requested: false,
         attendees: Vec::new(),
     })
+}
+
+fn calendar_ack(add: bool) -> eas_mail_protocol::Result<Vec<u8>> {
+    let mut root = Element::new("AirSync", "Sync");
+    let mut collections = Element::new("AirSync", "Collections");
+    let mut collection = Element::new("AirSync", "Collection");
+    collection.push(Element::text("AirSync", "CollectionId", "calendar"));
+    collection.push(Element::text("AirSync", "Status", "1"));
+    collection.push(Element::text("AirSync", "SyncKey", "next"));
+    if add {
+        let mut responses = Element::new("AirSync", "Responses");
+        let mut result = Element::new("AirSync", "Add");
+        result.push(Element::text("AirSync", "ClientId", "client"));
+        result.push(Element::text("AirSync", "ServerId", "event"));
+        result.push(Element::text("AirSync", "Status", "1"));
+        responses.push(result);
+        collection.push(responses);
+    }
+    collections.push(collection);
+    root.push(collections);
+    encode(&root)
 }
 
 fn meeting_response() -> eas_mail_protocol::Result<Vec<u8>> {

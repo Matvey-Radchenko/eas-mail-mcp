@@ -1,5 +1,5 @@
-use eas_mail_protocol::protocol::{ComposeSource, build_mime_message};
-use eas_mail_protocol::{Command, EasError, Patch};
+use eas_mail_protocol::protocol::{ComposeSource, MimeMessage, build_mime_with_attachments};
+use eas_mail_protocol::{Command, EasError};
 
 use super::super::{MailSource, OutgoingMail};
 use super::session::EasMailbox;
@@ -7,43 +7,8 @@ use crate::{AppError, ErrorCode, Result};
 
 impl EasMailbox {
     pub(super) async fn change_read(&self, source: &MailSource, is_read: bool) -> Result<()> {
-        let MailSource::Item { folder_id, server_id } = source else {
-            return Err(AppError::new(
-                ErrorCode::ValidationFailed,
-                "read state requires a message returned by mail_list",
-            ));
-        };
-        self.sync_mail_selected(false, Some(std::slice::from_ref(folder_id))).await?;
-        let mut state = self.state.lock().await;
-        self.ensure_ready(&mut state).await?;
-        self.require_capability(&state, Command::SendMail)?;
-        let sync_key = state
-            .collections
-            .get(folder_id)
-            .map(|collection| collection.sync_key.clone())
-            .ok_or_else(|| {
-                AppError::new(ErrorCode::SyncStale, "mail collection is not synchronized")
-            })?;
-        let result =
-            self.client.mark_read(state.policy_key, folder_id, server_id, &sync_key, is_read).await;
-        let result = if matches!(result, Err(EasError::PolicyRefreshRequired)) {
-            self.refresh_policy(&mut state).await?;
-            self.client.mark_read(state.policy_key, folder_id, server_id, &sync_key, is_read).await
-        } else {
-            result
-        }
-        .map_err(self.mutation_error())?;
-        require_success(result.status)?;
-        let collection = state.collections.get_mut(folder_id).ok_or_else(|| {
-            AppError::new(ErrorCode::SyncStale, "mail collection is not synchronized")
-        })?;
-        if let Some(sync_key) = result.sync_key {
-            collection.sync_key = sync_key;
-        }
-        if let Some(fields) = collection.mail.get_mut(server_id) {
-            fields.is_read = Patch::Value(is_read);
-        }
-        Ok(())
+        self.change_mail_property(source, &eas_mail_protocol::protocol::MailPatch::Read(is_read))
+            .await
     }
 
     pub(super) async fn send_message(&self, client_id: &str, message: &OutgoingMail) -> Result<()> {
@@ -92,13 +57,16 @@ impl EasMailbox {
     }
 
     fn mime(&self, message: &OutgoingMail) -> Result<Vec<u8>> {
-        build_mime_message(
-            &self.account.email,
-            &message.to,
-            &message.cc,
-            &message.bcc,
-            &message.subject,
-            &message.body,
+        build_mime_with_attachments(
+            MimeMessage {
+                sender: &self.account.email,
+                to: &message.to,
+                cc: &message.cc,
+                bcc: &message.bcc,
+                subject: &message.subject,
+                body: &message.body,
+            },
+            &message.attachments,
         )
         .map_err(self.scoped_error())
     }

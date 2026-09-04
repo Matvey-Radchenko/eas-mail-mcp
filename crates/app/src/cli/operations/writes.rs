@@ -15,11 +15,18 @@ pub(super) async fn mail_mark_read(
     runtime: &Runtime,
     input: MarkReadInput,
     yes: bool,
+    sync_folder: bool,
     mode: OutputMode,
 ) -> crate::Result<CliExit> {
-    match runtime.prepare_cli_mail_mark_read(&input).await? {
+    let mut prepared = runtime.prepare_cli_mail_mark_read(&input).await?;
+    if sync_folder && matches!(prepared, PreparedWrite::Ready(_)) {
+        runtime.sync_cli_mail_folders(std::slice::from_ref(&input.mail_ref)).await?;
+        prepared = runtime.prepare_cli_mail_mark_read(&input).await?;
+    }
+    match prepared {
         PreparedWrite::Replay(result) => mail_result(success(result), mode),
         PreparedWrite::Ready(preview) => {
+            runtime.check_cli_mail_property(&input.mail_ref).await?;
             let Some(fingerprint) = approve(&preview, yes)? else {
                 return Ok(CliExit::Declined);
             };
@@ -164,7 +171,7 @@ pub(super) async fn calendar_respond(
     }
 }
 
-fn approve(preview: &WritePreview, yes: bool) -> crate::Result<Option<String>> {
+pub(super) fn approve(preview: &WritePreview, yes: bool) -> crate::Result<Option<String>> {
     writeln!(std::io::stderr().lock(), "{}", preview.render())
         .map_err(|_| AppError::new(ErrorCode::StorageError, "cannot write mutation preview"))?;
     let fingerprint = preview.fingerprint()?;
