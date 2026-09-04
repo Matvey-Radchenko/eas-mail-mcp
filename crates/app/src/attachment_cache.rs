@@ -111,7 +111,10 @@ impl AttachmentCache {
 }
 
 fn remove_entry(path: &Path, metadata: &fs::Metadata) -> Result<()> {
-    let result = if platform::is_link_or_reparse(metadata) || metadata.is_file() {
+    let result = if platform::is_directory_reparse_point(metadata) {
+        // Windows directory links need RemoveDirectory; never recurse into their target.
+        fs::remove_dir(path)
+    } else if platform::is_link_or_reparse(metadata) || metadata.is_file() {
         fs::remove_file(path)
     } else {
         fs::remove_dir_all(path)

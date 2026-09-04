@@ -111,12 +111,52 @@ fn cache_status_and_clear_do_not_follow_links() -> anyhow::Result<()> {
     fs::create_dir(&outside)?;
     let target = outside.join("preserve.txt");
     fs::write(&target, b"preserve")?;
-    if !symlink_directory(&outside, &root.join("link"))? {
+    let directory_link = root.join("directory-link");
+    let file_link = root.join("file-link");
+    if !symlink_directory(&outside, &directory_link)? || !symlink_file(&target, &file_link)? {
         return Ok(());
     }
     assert_eq!(cache.status()?.files, 0);
-    let _ = cache.clear(None)?;
+    assert_eq!(cache.clear(None)?.remaining_files, 0);
+    assert!(fs::symlink_metadata(directory_link).is_err());
+    assert!(fs::symlink_metadata(file_link).is_err());
     assert_eq!(fs::read(target)?, b"preserve");
+    Ok(())
+}
+
+#[test]
+fn startup_and_download_pruning_remove_links_without_touching_targets() -> anyhow::Result<()> {
+    for prune_on_startup in [true, false] {
+        let directory = tempfile::tempdir()?;
+        let root = directory.path().join("attachments");
+        let cache = AttachmentCache::open(root.clone(), clock(Utc::now()))?;
+        let account = root.join("account");
+        fs::create_dir(&account)?;
+        let outside = directory.path().join("outside");
+        fs::create_dir(&outside)?;
+        let target = outside.join("preserve.txt");
+        fs::write(&target, b"preserve")?;
+        let mut links = Vec::new();
+        for parent in [&root, &account] {
+            let directory_link = parent.join("directory-link");
+            let file_link = parent.join("file-link");
+            if !symlink_directory(&outside, &directory_link)? || !symlink_file(&target, &file_link)?
+            {
+                return Ok(());
+            }
+            links.extend([directory_link, file_link]);
+        }
+        if prune_on_startup {
+            let _ = AttachmentCache::new(root, clock(Utc::now()))?;
+        } else {
+            let (download, _) = cache.store("account", "token", "download.txt", b"download")?;
+            assert_eq!(fs::read(download)?, b"download");
+        }
+        for link in links {
+            assert!(fs::symlink_metadata(link).is_err());
+        }
+        assert_eq!(fs::read(target)?, b"preserve");
+    }
     Ok(())
 }
 
