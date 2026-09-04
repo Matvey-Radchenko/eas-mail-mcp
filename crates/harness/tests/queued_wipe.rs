@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
 
+use anyhow::Context as _;
 use eas_mail_mcp::{
     AutoReplyGetInput, ErrorCode, ErrorEnvelope, MailListInput, OperationJournal as _, RandomIds,
     Runtime, SystemClock,
@@ -42,9 +43,11 @@ async fn queued_mutations_recheck_remote_wipe_after_acquiring_account_lock() -> 
         let input = request(&runtime, kind).await?;
         let owner = OpenOptions::new()
             .create(true)
+            .read(true)
             .append(true)
-            .open(directory.path().join("write-locks/work.lock"))?;
-        owner.lock()?;
+            .open(directory.path().join("write-locks/work.lock"))
+            .context("open remote-wipe fixture account lock")?;
+        owner.lock().context("acquire remote-wipe fixture account lock")?;
         let mut waiting = Box::pin(run(&runtime, kind, input));
         // Fake reads finish immediately: this poll must reach the held account lock.
         let pending =

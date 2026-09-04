@@ -2,6 +2,7 @@ use std::fs::OpenOptions;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context as _;
 use eas_mail_mcp::{AccountSelection, MailListInput, Runtime};
 use eas_mail_mcp_harness::{FakeBackend, FixedClock, MemoryJournal, SequenceIds};
 
@@ -20,9 +21,11 @@ async fn explicit_mail_sync_waits_for_account_owner_and_can_be_cancelled() -> an
     )?;
     let owner = OpenOptions::new()
         .create(true)
+        .read(true)
         .append(true)
-        .open(directory.path().join("write-locks/first.lock"))?;
-    owner.lock()?;
+        .open(directory.path().join("write-locks/first.lock"))
+        .context("open Sync fixture account lock")?;
+    owner.lock().context("acquire Sync fixture account lock")?;
     let first = AccountSelection { account_ids: Some(vec!["first".into()]) };
     let blocked =
         tokio::time::timeout(Duration::from_millis(75), runtime.sync_now(first.clone())).await;
