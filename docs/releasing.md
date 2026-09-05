@@ -75,12 +75,21 @@ cargo xtask soak --hours 8 \
   --report ./diagnostics/soak.json
 ```
 
-For 1.0.0 only, the operator explicitly approved a four-hour exception. Use
-`--hours 4 --four-hour-1-0-exception` with the exact `--application` and a durable
-`--report`. The report records `release-1.0.0-operator-approved-four-hours`;
-no failed or interrupted duration is accumulated. No new cycle starts after the
-deadline. An in-flight cycle that cannot finish within it fails acceptance.
-The normal eight-hour requirement remains unchanged for later releases.
+For 1.0.0 only, the operator later approved a one-hour maximum, superseding
+the earlier four-hour allowance. The accepted release source retains the
+eight-hour default and its original four-hour exception flag; it has no
+one-hour xtask option. A separately derived validation harness, bound to the
+accepted commit and a recorded patch/hash, supplies the strict one-hour 1.0.0
+policy. It runs the exact staged application without rebuilding it or changing
+any package. See the [release acceptance record](releases/1.0.0-acceptance.md#approved-100-soak-duration-exception)
+for provenance and the actual outcome; do not pass a one-hour flag to the
+accepted `cargo xtask soak` command.
+
+The derived report uses `release-1.0.0-operator-approved-one-hour`. No failed or
+interrupted duration is accumulated. No new cycle starts after the deadline;
+an in-flight cycle that cannot finish within it fails acceptance. Hash, warning,
+read, and shutdown checks remain in force. The normal eight-hour requirement
+remains unchanged for later releases.
 
 Use the actual extracted candidate path (`eas-mail-mcp.exe` on Windows).
 `--application` prevents rebuilding the application. The report records the
