@@ -10,8 +10,7 @@ and a hosted connector, Microsoft Graph, or a local mailbox database is
 undesirable.
 
 Platforms: **macOS 14+** (Apple Silicon and Intel) and **Windows 11 x64**.
-Windows support is new in `0.4.0`; see
-[compatibility and validation limits](#compatibility-and-limits).
+See [platform coverage and validation limits](docs/compatibility.md).
 
 The public npm packages contain no operator server, domain, realm, certificate,
 account, or password. Endpoint profiles are created or imported locally, and
@@ -22,7 +21,7 @@ npm install -g eas-mail-mcp
 eas-mail-mcp setup
 ```
 
-[Setup guide](docs/getting-started.md) | [CLI reference](docs/cli.md) | [Инструкция на русском](docs/installation.ru.md) | [Security](SECURITY.md)
+[Setup guide](docs/getting-started.md) | [CLI reference](docs/cli.md) | [Инструкция на русском](docs/installation.ru.md) | [Support](SUPPORT.md) | [Security](SECURITY.md)
 
 ## What it does
 
@@ -31,14 +30,15 @@ mailbox export.
 
 | Area | Capabilities |
 | --- | --- |
-| Mail | List folders and recent messages, search Exchange, fetch one body or attachment on demand |
-| Mail actions | Mark as read, send, reply, and forward with idempotent write protection |
+| Mail | Structured search with explicit coverage, bounded conversation reads, individual or batch message fetches, downloaded attachments |
+| Mail actions | Send/reply/forward with attachments; change read state, folders, follow-up flags, and categories; delete to trash; process bounded batches |
+| Automatic replies | Read or set internal/external replies and schedules, then verify the effective settings |
 | People | Search one account's server directory by name or email; return only names and email addresses |
 | Personal agenda | Return a compact, body-free schedule for a date range, including expanded recurrences and exceptions |
-| Availability | Resolve people, read 30-minute free/busy states, and calculate common working-hour slots in Rust |
+| Availability | Rank one-off and weekly recurring slots using required/optional participants, individual working hours/time zones, and buffers; server precision remains 30 minutes |
 | Calendar details | Search events and fetch one selected event with its body, attendees, recurrence, and exceptions |
 | Calendar actions | Create one-off or recurring events; edit/cancel a series, an occurrence, or its remaining tail; respond to a series or occurrence |
-| Multiple accounts | Work with several independently configured EAS profiles and return partial results with warnings |
+| Multiple accounts | Probe accounts independently; retain failures while other accounts work; inspect durable operation outcomes |
 
 Typical requests include:
 
@@ -93,7 +93,9 @@ flowchart LR
 There is one lightweight process per active MCP connection or CLI invocation.
 Mail synchronization state and page cursors live only in RAM. Object references
 are portable opaque strings, so a mail or event selected by one process can be
-used by another while the Exchange item still exists. Full message bodies and
+used by another while Exchange still recognizes its locator. After a move, use
+the new reference returned by that operation; the old locator may no longer
+resolve even when the message still exists. Full message bodies and
 attachments are fetched only on request. SQLite stores only idempotency metadata
 for writes, not mailbox or calendar content.
 
@@ -157,17 +159,18 @@ process-local.
 
 ## MCP tools
 
-Version `0.5.1` exposes 23 tools, including bounded directory search and
-recurring calendar writes.
+The server advertises typed input/output schemas for its bounded tools.
 
 <details>
 <summary>Read tools</summary>
 
-- `accounts_list`, `folders_list`, `sync_status`, `sync_now`
+- `accounts_list`, `accounts_status`, `folders_list`, `sync_status`, `sync_now`
+- `operation_get`, `operations_list`
 - `people_search`
-- `mail_list`, `mail_search`, `mail_get`
+- `mail_list`, `mail_search`, `mail_get`, `mail_get_many`, `mail_get_thread`
+- `mail_get_auto_reply`
 - `mail_list_attachments`, `mail_download_attachment`
-- `calendar_availability`, `calendar_find_slots`
+- `calendar_availability`, `calendar_find_slots`, `calendar_find_recurring_slots`
 - `calendar_search`, `calendar_get`
 
 </details>
@@ -176,6 +179,8 @@ recurring calendar writes.
 <summary>Write tools</summary>
 
 - `mail_mark_read`, `mail_send`, `mail_reply`, `mail_forward`
+- `mail_move`, `mail_delete`, `mail_set_flag`, `mail_set_categories`, `mail_batch`
+- `mail_set_auto_reply`
 - `calendar_create`, `calendar_update`, `calendar_delete`
 - `calendar_cancel`, `calendar_respond`
 
@@ -206,18 +211,20 @@ or an externally hosted AI model.
 
 ## Compatibility and limits
 
-`0.5.1` supports macOS arm64 and x86_64 and Windows 11 x64. Windows ARM64 and
-Linux are not supported. The Windows executable is distributed without an
-Authenticode signature. Each release contains the root npm tarball plus three
-native tarballs for the supported platform/architecture pairs.
+Supported packages target macOS arm64 and x86_64 and Windows 11 x64. Windows
+ARM64 and Linux are unsupported. macOS uses ad-hoc signatures without Developer
+ID notarization; Windows does not have an Authenticode signature. npm provenance
+and operating-system signing are separate assurances. Each release stages the
+root package and three native packages.
 
 Windows validation includes native Windows Server 2022 CI for the workspace
 tests, process cleanup, and npm installation through the generated `.cmd`
 launcher. Local CLI/MCP and package tests also run under Wine. Symlink tests
 can skip their checks when Windows does not grant link-creation privileges.
-Manual Windows 11 validation of Credential Manager, symlink/reparse-point
-protections, and live Exchange connectivity is still pending; CI does not
-replace that end-to-end check.
+Physical Windows 11 Credential Manager, reparse-point privilege differences,
+and live Exchange connectivity are not established by CI or Wine/Whisky. The
+1.0 release uses native macOS acceptance, native Windows CI, and local
+Wine/Whisky; it has no physical Windows or Intel Mac acceptance gate.
 
 Windows stores all accounts in one Credential Manager entry, limited to
 2,560 bytes of UTF-16 data. The number of accounts that fit depends on their
@@ -238,10 +245,25 @@ known release limitation until a post-release live check is recorded.
 Exchange policy, server capabilities, allowlists, and corporate network rules
 can still prevent a technically valid profile from connecting.
 
+Search reports bounded coverage and does not synchronize the entire mailbox.
+Some servers provide readable Search LongIds without mutable item identifiers;
+those references return `FEATURE_UNAVAILABLE` for writes. Use a message reference
+from `mail_list` when an Item locator is required. Conversation reads require
+verified ConversationId support and do not fall back to subject grouping.
+See the [full compatibility matrix](docs/compatibility.md) and
+[1.0 acceptance evidence](docs/releases/1.0.0-acceptance.md).
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md): installation, setup, accounts, and clients
 - [CLI reference](docs/cli.md): operational commands, input/output, references, and writes
+- [Mail search and threads](docs/mail-search-and-threads.md): precise filters and explicit coverage
+- [Automatic replies](docs/auto-reply.md): audiences, schedules, and verified outcomes
+- [Ranked scheduling](docs/calendar-scheduling.md): participant rules, buffers, and weekly patterns
+- [Diagnostics and cache](docs/diagnostics.md): safe reports, per-account checks, and local cleanup
+- [Compatibility](docs/compatibility.md): platforms, server requirements, and limits
+- [Support](SUPPORT.md): reporting, recovery, and latest-release support
+- [Changelog](CHANGELOG.md): versioned changes
 - [Recurring events](docs/calendar-series.md): scopes, exceptions, and directory search
 - [Установка на русском](docs/installation.ru.md): краткая русская инструкция
 - [Agent installation](docs/agent-installation.ru.md): безопасная передача настройки ИИ-агенту

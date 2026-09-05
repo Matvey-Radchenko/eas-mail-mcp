@@ -21,6 +21,12 @@ pub(super) async fn run(
                 runtime.calendar_find_slots(calendar_input::find_slots(arguments)?).await;
             output::emit(response, mode, OutputKind::Slots, true)
         }
+        CalendarCommand::RecurringSlots(arguments) => {
+            let response = runtime
+                .calendar_find_recurring_slots(calendar_input::recurring_slots(arguments)?)
+                .await;
+            output::emit(response, mode, OutputKind::RecurringSlots, true)
+        }
         CalendarCommand::Search(arguments) => {
             let response = runtime.calendar_search(calendar_input::search(arguments)?).await;
             output::emit(response, mode, OutputKind::CalendarList, true)

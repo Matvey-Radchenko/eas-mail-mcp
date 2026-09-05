@@ -71,6 +71,17 @@ jobs:
         run: cargo xtask npm verify
       - name: Test Windows workspace
         run: cargo xtask test
+      - name: Build synthetic Windows acceptance executables
+        run: cargo build --release --locked --package eas-mail-mcp-harness --bin harness-server --bin harness-cli
+      - name: Upload exact-commit synthetic Windows acceptance executables
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-acceptance-${{ github.sha }}
+          path: |
+            target/release/harness-server.exe
+            target/release/harness-cli.exe
+          if-no-files-found: error
+          retention-days: 7
 
   npm-pack:
     strategy:
@@ -102,6 +113,10 @@ jobs:
           package-manager-cache: false
       - name: Verify public profile
         run: cargo xtask profile verify
+      - name: Test exact-commit release policy
+        run: node --test .github/scripts/require-ci.test.mjs
+      - name: Test acceptance process cleanup
+        run: node --test scripts/windows-acceptance/stdio.test.mjs
       - name: Build and smoke-test npm tarballs
         run: cargo xtask npm pack
       - name: Audit public tree and history

@@ -1,4 +1,5 @@
 mod history;
+mod metadata;
 
 use std::fs;
 use std::io::{self, Write as _};
@@ -27,9 +28,7 @@ pub(crate) fn run(root: &Path, denylist: Option<&Path>) -> Result<()> {
         let bytes = fs::read(&path).with_context(|| format!("cannot read {relative}"))?;
         scan(relative, &bytes, &patterns, &mut findings);
     }
-    let history =
-        output(root, "git", ["log", "--all", "--format=fuller", "--patch", "--no-ext-diff"])?;
-    scan("Git history text", history.as_bytes(), &patterns, &mut findings);
+    metadata::scan_history(root, &patterns, &mut findings)?;
     history::scan_blobs(root, &patterns, &mut findings)?;
     for finding in &findings {
         writeln!(io::stderr().lock(), "private material: {finding}")?;

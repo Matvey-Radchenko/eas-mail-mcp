@@ -16,6 +16,7 @@ use self::helpers::{
     operation_id, required_ref, succeeded, test_token, timed_schedule,
 };
 use self::lookup::ExpectedEvent;
+use super::write_outcome::must_stop;
 
 #[derive(Debug)]
 pub struct LiveAccount {
@@ -77,6 +78,9 @@ async fn check_personal_event(
     let outcome = run_personal_event(runtime, account_id, &subject, kind, &mut current_ref).await;
     if outcome.is_ok() {
         return Ok(());
+    }
+    if outcome.as_ref().is_err_and(must_stop) {
+        return outcome;
     }
     let cleanup = cleanup_owned_event(runtime, account_id, &token, current_ref.as_deref()).await;
     combine_with_cleanup(outcome, cleanup)
@@ -176,6 +180,9 @@ async fn check_meeting(
             .await;
     if outcome.is_ok() {
         return Ok(());
+    }
+    if outcome.as_ref().is_err_and(must_stop) {
+        return outcome;
     }
     let cleanup =
         cleanup_owned_event(runtime, &organizer.account_id, &token, organizer_ref.as_deref()).await;

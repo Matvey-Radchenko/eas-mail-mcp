@@ -12,10 +12,11 @@ pub(super) fn scan_blobs(
     patterns: &[String],
     findings: &mut Vec<String>,
 ) -> Result<()> {
-    let commits = output(root, "git", ["rev-list", "--all"])?;
+    let commits = output(root, "git", ["--no-replace-objects", "rev-list", "--all"])?;
     let mut blobs = BTreeMap::new();
     for commit in commits.lines().filter(|value| !value.is_empty()) {
-        let tree = output(root, "git", ["ls-tree", "-r", "--full-tree", commit])?;
+        let tree =
+            output(root, "git", ["--no-replace-objects", "ls-tree", "-r", "--full-tree", commit])?;
         for entry in tree.lines() {
             if let Some((sha, path)) = parse_blob(entry) {
                 blobs.entry(sha.to_owned()).or_insert_with(|| path.to_owned());
@@ -42,7 +43,7 @@ fn parse_blob(entry: &str) -> Option<(&str, &str)> {
 
 fn read_blob(root: &Path, sha: &str) -> Result<Vec<u8>> {
     let result = Command::new("git")
-        .args(["cat-file", "blob", sha])
+        .args(["--no-replace-objects", "cat-file", "blob", sha])
         .current_dir(root)
         .output()
         .with_context(|| format!("cannot read Git history blob {sha}"))?;

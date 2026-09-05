@@ -550,7 +550,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "eas-mail-mcp"
-version = "0.5.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -567,6 +567,7 @@ dependencies = [
  "icalendar",
  "json5",
  "keyring",
+ "libc",
  "mail-builder",
  "process-wrap 10.0.0",
  "rand 0.9.5",
@@ -590,7 +591,7 @@ dependencies = [
 
 [[package]]
 name = "eas-mail-mcp-harness"
-version = "0.5.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -601,6 +602,7 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "toml",
@@ -610,7 +612,7 @@ dependencies = [
 
 [[package]]
 name = "eas-mail-profile"
-version = "0.5.1"
+version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
  "rcgen",
@@ -623,13 +625,14 @@ dependencies = [
 
 [[package]]
 name = "eas-mail-protocol"
-version = "0.5.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
  "chrono",
  "eas-mail-profile",
+ "mail-builder",
  "proptest",
  "quick-xml",
  "rcgen",
@@ -3330,7 +3333,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.5.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",

@@ -145,6 +145,59 @@ struct TestServer {
     task: tokio::task::JoinHandle<anyhow::Result<String>>,
 }
 
+#[tokio::test]
+async fn response_body_disconnect_after_sent_mutation_is_unknown() -> anyhow::Result<()> {
+    for safety in [RequestSafety::Mutation, RequestSafety::RetrySafe] {
+        let server = TestServer::start("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\ncut").await?;
+        let transport = test_transport(&server)?;
+        let result = transport.command(Command::SendMail, b"sent", Some(7), safety).await;
+        match safety {
+            RequestSafety::Mutation => {
+                anyhow::ensure!(matches!(result, Err(EasError::OutcomeUnknown)))
+            }
+            RequestSafety::RetrySafe => {
+                anyhow::ensure!(matches!(result, Err(EasError::Network(_))))
+            }
+        }
+        anyhow::ensure!(server.request().await?.contains("sent"));
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn oversized_response_is_rejected_from_headers_before_body_download() -> anyhow::Result<()> {
+    let server = TestServer::start("HTTP/1.1 200 OK\r\nContent-Length: 999999999\r\n\r\n").await?;
+    let transport = test_transport(&server)?;
+    let error =
+        transport.command(Command::Search, b"query", Some(7), RequestSafety::RetrySafe).await;
+    anyhow::ensure!(matches!(error, Err(EasError::ResponseTooLarge)));
+    server.wait().await
+}
+
+#[tokio::test]
+async fn chunked_response_cannot_exceed_actual_byte_budget() -> anyhow::Result<()> {
+    let payload = "x".repeat(65_537);
+    let server = TestServer::start(format!(
+        "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n{payload}\r\n0\r\n\r\n",
+        payload.len()
+    ))
+    .await?;
+    let transport = test_transport(&server)?;
+    anyhow::ensure!(matches!(transport.options().await, Err(EasError::ResponseTooLarge)));
+    let _ = server.wait_allowing_handshake_failure().await;
+    Ok(())
+}
+
+fn test_transport(server: &TestServer) -> anyhow::Result<HttpTransport> {
+    Ok(HttpTransport::with_test_endpoint(
+        strict_client(Some(server.certificate_pem.as_bytes()))?,
+        format!("{}Microsoft-Server-ActiveSync", server.localhost_url()),
+        "user".into(),
+        "fixture-value".into(),
+        "00112233445566778899AABBCCDDEEFF".into(),
+    )?)
+}
+
 impl TestServer {
     async fn start(response: impl Into<String>) -> anyhow::Result<Self> {
         install_crypto_provider();

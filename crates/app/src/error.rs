@@ -16,6 +16,12 @@ pub enum ErrorCode {
     AccessDenied,
     /// Current network cannot reach the managed endpoint.
     NetworkUnreachable,
+    /// Exchange rejected a request due to throttling.
+    Throttled,
+    /// Exchange is temporarily unavailable for a safe read.
+    ServiceUnavailable,
+    /// The bounded local request queue is full.
+    ResourceBusy,
     /// Configuration is invalid.
     ConfigInvalid,
     /// Exchange policy cannot be enforced by this app.
@@ -56,6 +62,9 @@ impl ErrorCode {
             Self::AuthRequired => "AUTH_REQUIRED",
             Self::AccessDenied => "ACCESS_DENIED",
             Self::NetworkUnreachable => "NETWORK_UNREACHABLE",
+            Self::Throttled => "THROTTLED",
+            Self::ServiceUnavailable => "SERVICE_UNAVAILABLE",
+            Self::ResourceBusy => "RESOURCE_BUSY",
             Self::ConfigInvalid => "CONFIG_INVALID",
             Self::PolicyBlocked => "POLICY_BLOCKED",
             Self::NotFound => "NOT_FOUND",
@@ -90,6 +99,32 @@ pub struct ErrorEnvelope {
     pub operation_id: Option<String>,
     /// Concrete remediation hint.
     pub remediation: Option<String>,
+    /// Optional extended context is boxed to keep ordinary Result errors small.
+    #[serde(flatten)]
+    pub context: Box<ErrorContext>,
+}
+
+/// Extended optional error metadata serialized at the envelope's top level.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ErrorContext {
+    /// Server-advertised delay before a safe retry, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<u64>,
+    /// Every scoped failure when a multi-account request failed completely.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub account_errors: Vec<crate::Warning>,
+}
+
+impl std::ops::Deref for ErrorEnvelope {
+    type Target = ErrorContext;
+    fn deref(&self) -> &Self::Target {
+        &self.context
+    }
+}
+impl std::ops::DerefMut for ErrorEnvelope {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.context
+    }
 }
 
 /// Internal application error carrying the public envelope.
@@ -112,6 +147,7 @@ impl AppError {
                 account_id: None,
                 operation_id: None,
                 remediation: None,
+                context: Box::default(),
             },
         }
     }
@@ -143,11 +179,25 @@ impl AppError {
         self.envelope.operation_id = Some(value.into());
         self
     }
+
+    /// Adds the server's optional delay without changing retry safety.
+    #[must_use]
+    pub fn retry_after(mut self, seconds: Option<u64>) -> Self {
+        self.envelope.retry_after_seconds = seconds;
+        self
+    }
 }
 
 impl From<EasError> for AppError {
     fn from(error: EasError) -> Self {
         match error {
+            EasError::ResourceBusy => {
+                Self::new(ErrorCode::ResourceBusy, "local Exchange request queue is busy")
+                    .retryable()
+            }
+            EasError::FeatureUnavailable(message) => {
+                Self::new(ErrorCode::FeatureUnavailable, message)
+            }
             EasError::Authentication => {
                 Self::new(ErrorCode::AuthRequired, "Exchange rejected the account credentials")
             }
@@ -163,6 +213,20 @@ impl From<EasError> for AppError {
                 "Cannot reach the managed Exchange endpoint",
             )
             .retryable(),
+            EasError::Throttled { retry_after_seconds } => {
+                Self::new(ErrorCode::Throttled, "Exchange throttled the request")
+                    .retryable()
+                    .retry_after(retry_after_seconds)
+            }
+            EasError::HttpUnavailable { retry_after_seconds } => {
+                Self::new(ErrorCode::ServiceUnavailable, "Exchange is temporarily unavailable")
+                    .retryable()
+                    .retry_after(retry_after_seconds)
+            }
+            EasError::ResponseTooLarge => Self::new(
+                ErrorCode::ResultTooLarge,
+                "Exchange response exceeds the command byte limit",
+            ),
             EasError::ServiceUnavailable => Self::new(
                 ErrorCode::ProtocolError,
                 "Exchange availability service is temporarily unavailable",

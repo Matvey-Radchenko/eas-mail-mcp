@@ -35,6 +35,10 @@ pub(super) fn mail(account_id: &str, source: MailSource) -> BackendMail {
                 "IPM.Note".into()
             }),
             meeting_request: if meeting { Patch::Value(meeting_request()) } else { Patch::Missing },
+            conversation_id: Patch::Value(vec![1; 16]),
+            conversation_index: Patch::Value(vec![1; 22]),
+            flag: Patch::Value(eas_mail_protocol::wbxml::Element::new("Email", "Flag")),
+            categories: Patch::Value(Vec::new()),
         },
     }
 }

@@ -11,6 +11,10 @@ native packages.
 
 ## Build and test locally
 
+Prepare the isolated Python baseline using [the benchmark instructions](../benchmarks/README.md)
+before the performance command. Run timing measurements after concurrent builds
+and tests have finished.
+
 From a clean release commit, run:
 
 ```bash
@@ -28,10 +32,27 @@ multi-account setup, client configuration, MCP reads, operational CLI reads,
 portable references across CLI processes, and permitted self-writes. Restart
 configured clients after changing their MCP configuration.
 
+Live fixture drivers stop further writes and skip automatic cleanup after
+`partial`, `unknown`, or `OUTCOME_UNKNOWN`. Preserve the reported operation UUID
+and inspect the journal and server before any recovery action. A confirmed
+failure can still trigger cleanup of a confirmed-created fixture. Record any
+retained fixture instead of treating an interrupted lifecycle as a pass.
+
+Before changing an existing installation, run the
+[isolated package upgrade check](package-acceptance.md). It uses temporary npm
+prefixes and synthetic local state to check clean install, 0.5.1 upgrade, and
+uninstall retention. Record its exact archive hashes and any incomplete MCP
+check separately from real setup and provider acceptance.
+
 Packaging is host-aware: macOS builds the two Darwin native packages and
-Windows 11 x64 builds `eas-mail-mcp-windows-x64`. Run the local acceptance loop on
-both operating systems. On Windows, the packaged PE x64 executable uses bundled
-SQLite and the static MSVC CRT; it is intentionally not Authenticode-signed.
+Windows builds `eas-mail-mcp-windows-x64`. Record each validation environment and
+its evidence in the version's acceptance document. For 1.0, the agreed route is
+native macOS live acceptance, native Windows CI, and a Wine/Whisky package smoke.
+A physical Windows machine or Intel Mac is not an additional promotion gate;
+do not describe emulation or cross-compilation as native hardware acceptance.
+On Windows, the packaged PE x64 executable uses bundled SQLite and the static
+MSVC CRT; it is intentionally not Authenticode-signed. See the
+[compatibility matrix](compatibility.md) and [1.0 acceptance record](releases/1.0.0-acceptance.md).
 
 Each active MCP stdio connection owns one server process. During the manual
 check, verify that opening one connection creates one process and that closing
@@ -44,6 +65,28 @@ Push the accepted commit to `main`, then run `Stage npm release` with `latest`
 for a stable version. Separate macOS and Windows jobs build and audit the
 artifacts; the staging job then submits all four tarballs. Nothing is public
 yet.
+
+Run the required eight-hour read-only soak against the exact staged native
+binary, preserving its durable report:
+
+```bash
+cargo xtask soak --hours 8 \
+  --application ./candidate/bin/eas-mail-mcp \
+  --report ./diagnostics/soak.json
+```
+
+For 1.0.0 only, the operator explicitly approved a four-hour exception. Use
+`--hours 4 --four-hour-1-0-exception` with the exact `--application` and a durable
+`--report`. The report records `release-1.0.0-operator-approved-four-hours`;
+no failed or interrupted duration is accumulated. No new cycle starts after the
+deadline. An in-flight cycle that cannot finish within it fails acceptance.
+The normal eight-hour requirement remains unchanged for later releases.
+
+Use the actual extracted candidate path (`eas-mail-mcp.exe` on Windows).
+`--application` prevents rebuilding the application. The report records the
+binary SHA-256, start time, elapsed duration, and progress. Its sessions are
+synthetic MCP SDK sessions; client-name strings do not establish real GUI-client
+acceptance. Record actual client connection checks separately.
 
 List and download each staged package:
 
@@ -59,19 +102,24 @@ Install the downloaded root tarball and the native tarball matching the test
 machine. This tests the exact bytes awaiting approval. On macOS:
 
 ```bash
-npm install -g ./eas-mail-mcp-darwin-arm64-*.tgz ./eas-mail-mcp-0.*.tgz
+npm install -g ./eas-mail-mcp-darwin-arm64-1.0.0.tgz ./eas-mail-mcp-1.0.0.tgz
 eas-mail-mcp setup
 ```
 
 On Windows PowerShell:
 
 ```powershell
-npm install -g .\eas-mail-mcp-windows-x64-*.tgz .\eas-mail-mcp-0.*.tgz
+npm install -g .\eas-mail-mcp-windows-x64-1.0.0.tgz .\eas-mail-mcp-1.0.0.tgz
 eas-mail-mcp --version --verbose
 eas-mail-mcp native-path
-eas-mail-mcp doctor
+eas-mail-mcp doctor --check
 eas-mail-mcp setup
 ```
+
+The examples name 1.0.0 explicitly. For a later release, use that exact accepted
+version for both packages. Record the source commit, stage IDs, package hashes,
+workflow run, and available npm provenance for all four packages. npm provenance
+establishes build origin; it is separate from operating-system code signing.
 
 If the setup or runtime check fails, reject every staged package and bump the
 version before creating another candidate. Do not approve a partial fix under
@@ -99,7 +147,7 @@ $prefix = Join-Path $env:TEMP ("eas-mail-mcp-" + [guid]::NewGuid())
 npm install -g --prefix $prefix eas-mail-mcp@latest
 & (Join-Path $prefix 'eas-mail-mcp.cmd') --version --verbose
 & (Join-Path $prefix 'eas-mail-mcp.cmd') native-path
-& (Join-Path $prefix 'eas-mail-mcp.cmd') doctor
+& (Join-Path $prefix 'eas-mail-mcp.cmd') doctor --check
 ```
 
 After the registry smoke succeeds, point `next` at the same stable version.

@@ -16,13 +16,16 @@ impl EasMailbox {
         self.ensure_ready(&mut state).await?;
         let mut events = BTreeMap::new();
         for (_, collection_id) in folders {
+            self.reset_calendar(&mut state, &collection_id);
             let initial = self.read_calendar_page(&mut state, &collection_id, "0").await?;
             let mut sync_key = require_sync_key(initial.sync_key)?;
+            self.set_calendar_key(&mut state, &collection_id, &sync_key)?;
             apply_page(&mut events, &collection_id, initial.changes)?;
             let mut complete = false;
             for _ in 0..MAX_CALENDAR_PAGES {
                 let page = self.read_calendar_page(&mut state, &collection_id, &sync_key).await?;
                 sync_key = require_sync_key(page.sync_key)?;
+                self.set_calendar_key(&mut state, &collection_id, &sync_key)?;
                 let more_available = page.more_available;
                 apply_page(&mut events, &collection_id, page.changes)?;
                 if events.len() > MAX_CALENDAR_ITEMS {

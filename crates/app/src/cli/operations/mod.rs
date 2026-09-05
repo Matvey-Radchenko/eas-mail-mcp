@@ -1,13 +1,17 @@
+mod auto_reply;
 mod calendar;
 mod calendar_args;
 mod calendar_input;
 mod calendar_recurrence;
 mod common;
 mod human;
+mod human_slots;
 mod input;
 mod mail;
 mod mail_args;
 mod mail_input;
+mod mail_mutation_args;
+mod mail_mutations;
 mod output;
 mod people;
 mod writes;

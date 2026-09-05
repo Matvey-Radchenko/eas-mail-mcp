@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-08-14
-- Amended: 2026-08-27
+- Amended: 2026-09-05
 
 ## Context
 
@@ -11,12 +11,15 @@ be duplicated by retries or initiated without adequate user review.
 
 ## Decision
 
-Expose 14 read tools, four mail write tools, and five Calendar lifecycle tools
-with structured schemas. Lists are bounded to 100, previews to 500 characters,
+Expose 36 tools with structured schemas: 21 reads and 15 writes. The
+[1.0 contract baseline](../../contracts/README.md) records their exact names,
+schemas, and annotations. Lists are bounded to 100, previews to 500 characters,
 and bodies to 12,000 by default and 50,000 maximum. Text search always runs on
 Exchange. Calendar date-range search performs a fresh metadata-only Sync and
 returns only locally filtered, recurrence-expanded summaries; no Calendar cache
-is retained. Cursors point to immutable 15-minute RAM snapshots. Mail, event,
+is retained. Cursors point to immutable RAM snapshots. Each cursor is single-use
+and expires after 15 minutes, process exit, or eviction beyond 32 retained
+cursors; following a page returns a new cursor with its own lifetime. Mail, event,
 and attachment references instead use one stateless, versioned codec containing
 only bounded account and EAS locator metadata. The same opaque reference works
 across MCP and CLI processes while Exchange still recognizes the item.

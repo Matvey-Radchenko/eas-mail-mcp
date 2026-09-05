@@ -129,6 +129,7 @@ async fn read_only_capabilities_block_send_before_a_mutation_request() -> anyhow
         Some(evaluate_policy(&BTreeMap::new())),
     )?;
     let message = OutgoingMail {
+        attachments: Vec::new(),
         to: vec!["user@example.invalid".into()],
         cc: Vec::new(),
         bcc: Vec::new(),

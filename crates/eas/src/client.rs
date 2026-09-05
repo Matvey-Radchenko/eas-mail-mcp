@@ -1,12 +1,15 @@
 use std::collections::BTreeSet;
+mod calendar;
+mod compose;
+mod mail_mutations;
+mod oof;
 use std::sync::Arc;
 
-use crate::protocol::{self, ComposeSource, PolicyDecision};
+use crate::protocol::{self, PolicyDecision};
 use chrono::{DateTime, Utc};
 
 use crate::{
-    CalendarApplication, CalendarItemResult, CollectionKind, Command, EasError, FolderPage,
-    ItemResult, MeetingResponseChoice, MeetingResponseResult, MutationResult,
+    CalendarItemResult, CollectionKind, Command, EasError, FolderPage, ItemResult, MutationResult,
     RecipientAvailability, RequestSafety, Result, SearchCalendarPage, SearchMail, SyncPage,
     Transport,
 };
@@ -89,7 +92,9 @@ impl EasClient {
             Command::SmartReply,
             Command::SmartForward,
             Command::MeetingResponse,
+            Command::MoveItems,
             Command::ResolveRecipients,
+            Command::Settings,
         ]
         .into_iter()
         .filter(|command| advertised.split(',').any(|value| value.trim() == command.name()))
@@ -216,6 +221,20 @@ impl EasClient {
         protocol::parse_search(&response.body)
     }
 
+    /// Searches one bounded mail candidate page, preserving coverage and locator metadata.
+    pub async fn search_mail_page(
+        &self,
+        key: u32,
+        query: &crate::MailSearchQuery,
+        start: usize,
+        limit: usize,
+        preview_size: usize,
+    ) -> Result<crate::SearchMailPage> {
+        let body = protocol::build_mail_search(query, start, limit, preview_size)?;
+        let response = self.read_command(Command::Search, &body, key).await?;
+        protocol::parse_mail_search(&response.body)
+    }
+
     /// Searches Calendar items on Exchange instead of synchronizing all future events.
     pub async fn search_calendar(
         &self,
@@ -321,114 +340,7 @@ impl EasClient {
     ) -> Result<MutationResult> {
         let body = protocol::build_mark_read(collection_id, server_id, sync_key, is_read)?;
         let response = self.mutation_command(Command::Sync, &body, key).await?;
-        protocol::parse_mutation_sync(&response.body)
-    }
-
-    /// Adds one non-recurring Calendar item with no automatic network retry.
-    pub async fn calendar_add(
-        &self,
-        key: u32,
-        collection_id: &str,
-        sync_key: &str,
-        client_id: &str,
-        item: &CalendarApplication,
-    ) -> Result<MutationResult> {
-        let body = protocol::build_calendar_add(collection_id, sync_key, client_id, item)?;
-        let response = self.mutation_command(Command::Sync, &body, key).await?;
-        calendar_mutation_result(protocol::parse_calendar_mutation_sync(&response.body)?)
-    }
-
-    /// Replaces one non-recurring Calendar item with no automatic network retry.
-    pub async fn calendar_change(
-        &self,
-        key: u32,
-        collection_id: &str,
-        server_id: &str,
-        sync_key: &str,
-        item: &CalendarApplication,
-    ) -> Result<MutationResult> {
-        let body = protocol::build_calendar_change(collection_id, sync_key, server_id, item)?;
-        let response = self.mutation_command(Command::Sync, &body, key).await?;
-        calendar_mutation_result(protocol::parse_calendar_mutation_sync(&response.body)?)
-    }
-
-    /// Deletes one Calendar item with no automatic network retry.
-    pub async fn calendar_delete(
-        &self,
-        key: u32,
-        collection_id: &str,
-        server_id: &str,
-        sync_key: &str,
-    ) -> Result<MutationResult> {
-        let body = protocol::build_calendar_delete(collection_id, sync_key, server_id)?;
-        let response = self.mutation_command(Command::Sync, &body, key).await?;
-        calendar_mutation_result(protocol::parse_calendar_mutation_sync(&response.body)?)
-    }
-
-    /// Responds to one meeting request with no automatic network retry.
-    pub async fn meeting_response(
-        &self,
-        key: u32,
-        collection_id: &str,
-        request_id: &str,
-        response: MeetingResponseChoice,
-    ) -> Result<MeetingResponseResult> {
-        let body = protocol::build_meeting_response(collection_id, request_id, response)?;
-        let response = self.mutation_command(Command::MeetingResponse, &body, key).await?;
-        protocol::parse_meeting_response(&response.body)
-    }
-
-    /// Responds to one meeting request returned by Search LongId with no network retry.
-    pub async fn meeting_response_instance(
-        &self,
-        key: u32,
-        collection_id: &str,
-        request_id: &str,
-        response: MeetingResponseChoice,
-        original: Option<DateTime<Utc>>,
-    ) -> Result<MeetingResponseResult> {
-        let body = protocol::build_meeting_response_instance(
-            collection_id,
-            request_id,
-            response,
-            original,
-        )?;
-        let response = self.mutation_command(Command::MeetingResponse, &body, key).await?;
-        protocol::parse_meeting_response(&response.body)
-    }
-
-    /// Responds to one meeting request returned by Search LongId with no network retry.
-    pub async fn meeting_response_long_id(
-        &self,
-        key: u32,
-        long_id: &str,
-        response: MeetingResponseChoice,
-    ) -> Result<MeetingResponseResult> {
-        let body = protocol::build_meeting_response_long_id(long_id, response)?;
-        let response = self.mutation_command(Command::MeetingResponse, &body, key).await?;
-        protocol::parse_meeting_response(&response.body)
-    }
-
-    /// Sends a new MIME message with an EAS ClientId.
-    pub async fn send(&self, key: u32, client_id: &str, mime: Vec<u8>) -> Result<MutationResult> {
-        let body = protocol::build_send(client_id, mime)?;
-        let response = self.mutation_command(Command::SendMail, &body, key).await?;
-        protocol::parse_compose(&response.body)
-    }
-
-    /// Replies to or forwards a referenced message.
-    pub async fn smart_compose(
-        &self,
-        key: u32,
-        forward: bool,
-        client_id: &str,
-        source: ComposeSource<'_>,
-        mime: Vec<u8>,
-    ) -> Result<MutationResult> {
-        let body = protocol::build_smart(forward, client_id, source, mime)?;
-        let command = if forward { Command::SmartForward } else { Command::SmartReply };
-        let response = self.mutation_command(command, &body, key).await?;
-        protocol::parse_compose(&response.body)
+        mutation_parse(protocol::parse_mail_change(&response.body, collection_id, server_id))
     }
 
     async fn read_command(
@@ -450,7 +362,7 @@ impl EasClient {
     ) -> Result<crate::TransportResponse> {
         let response =
             self.transport.command(command, body, Some(key), RequestSafety::Mutation).await?;
-        normalize_command_response(response)
+        normalize_command_response(response).map_err(mutation_error)
     }
 }
 
@@ -464,8 +376,37 @@ fn normalize_command_response(
     if response.status == 449 {
         return Err(EasError::PolicyRefreshRequired);
     }
+    let retry_after_seconds = response.headers.get("retry-after").and_then(|value| {
+        value.parse::<u64>().ok().or_else(|| {
+            DateTime::parse_from_rfc2822(value).ok().map(|date| {
+                date.with_timezone(&Utc).signed_duration_since(Utc::now()).num_seconds().max(0)
+                    as u64
+            })
+        })
+    });
+    match response.status {
+        429 => return Err(EasError::Throttled { retry_after_seconds }),
+        503 => return Err(EasError::HttpUnavailable { retry_after_seconds }),
+        _ => {}
+    }
     require_http_success(response.status)?;
     Ok(response)
+}
+
+pub(crate) fn mutation_parse<T>(result: Result<T>) -> Result<T> {
+    result.map_err(mutation_error)
+}
+
+fn mutation_error(error: EasError) -> EasError {
+    match error {
+        EasError::Authentication
+        | EasError::AccessDenied
+        | EasError::PolicyRefreshRequired
+        | EasError::InvalidSyncKey
+        | EasError::AccountRemoteWipe
+        | EasError::Throttled { .. } => error,
+        _ => EasError::OutcomeUnknown,
+    }
 }
 
 fn require_http_success(status: u16) -> Result<()> {

@@ -64,6 +64,36 @@ pub(super) fn source_ids(source: &BackendEvent) -> Result<(&str, &str)> {
     }
 }
 
+pub(super) fn calendar_change_payload(
+    source: &BackendEvent,
+    item: &CalendarApplication,
+) -> CalendarApplication {
+    let mut payload = item.clone();
+    if let Some(previous) = &source.fields.properties {
+        // MS-ASCMD 2.2.3.24: omitted Exception nodes remain unchanged in Calendar Sync/Change.
+        // Keep the complete local result, but do not replay server-expanded sibling overrides.
+        payload.properties.exceptions.retain_mut(|exception| {
+            let prior = previous
+                .exceptions
+                .iter()
+                .find(|prior| prior.original_start == exception.original_start);
+            if prior.is_some_and(|prior| exception == prior) {
+                return false;
+            }
+            // In EAS 14.1 Change, an omitted in-schema property is actively deleted. Express
+            // empty categories this way: replaying the server's empty Categories container
+            // inside an Exception is rejected by supported providers with item status 6.
+            if let Some(properties) = &mut exception.fields.properties
+                && properties.categories.as_ref().is_some_and(Vec::is_empty)
+            {
+                properties.categories = None;
+            }
+            true
+        });
+    }
+    payload
+}
+
 pub(super) fn calendar_filter(state: &SessionState) -> Result<u8> {
     state.policy.as_ref().map(|value| value.calendar_filter_type).ok_or_else(|| {
         AppError::new(ErrorCode::ProtocolError, "Calendar policy state is unavailable")

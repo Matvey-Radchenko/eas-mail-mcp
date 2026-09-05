@@ -27,7 +27,14 @@ impl Runtime {
                     profile: profile_name(&account.profile).into(),
                     email: account.email,
                     enabled: account.enabled,
-                    status: "ready".into(),
+                    status: if !account.enabled {
+                        "disabled"
+                    } else if backend.configuration_error().is_some() {
+                        "unavailable"
+                    } else {
+                        "unknown"
+                    }
+                    .into(),
                 }
             })
             .collect();
@@ -135,7 +142,14 @@ impl Runtime {
         let completed_at = self.clock.now();
         let results = join_all(backends.into_iter().map(|backend| async move {
             let account_id = backend.account().account_id;
-            let result = backend.sync_mail().await.map(|value| SyncReport {
+            let result = async {
+                // Sync0 may reset server-side item bindings. Serialize explicit collection
+                // synchronization with writes across all processes using this account.
+                let _guard = self.write_locks.acquire(&account_id).await?;
+                backend.sync_mail().await
+            }
+            .await
+            .map(|value| SyncReport {
                 account_id: account_id.clone(),
                 scope: "mail".into(),
                 collections_synced: value.collections,
@@ -159,8 +173,7 @@ impl Runtime {
     ) -> Result<(MailPage, Vec<crate::Warning>)> {
         let page_limit = limit(input.limit.map(u32::from), 50, 100)?;
         if let Some(cursor) = input.cursor {
-            let (items, next_cursor) = self.references.next_mail_page(&cursor, page_limit)?;
-            return Ok((MailPage { items, next_cursor }, Vec::new()));
+            return self.references.next_search_page(&cursor, page_limit);
         }
         let backends = self.selected(input.account_ids.as_deref())?;
         let folders = input.folder_ids;
@@ -168,42 +181,22 @@ impl Runtime {
             let folders = folders.clone();
             async move {
                 let id = backend.account().account_id;
-                (id, backend.list_mail(folders.as_deref()).await)
+                let result = async {
+                    let _guard = self.write_locks.acquire(&id).await?;
+                    backend.list_mail(folders.as_deref()).await
+                }
+                .await;
+                (id, result)
             }
         }))
         .await;
         let (groups, warnings) = self.collect_partial(results)?;
         let summaries = self.mail_summaries(groups.into_iter().flatten().collect())?;
         let (items, next_cursor) = self.references.first_mail_page(summaries, page_limit)?;
-        Ok((MailPage { items, next_cursor }, warnings))
-    }
-
-    async fn mail_search_result(
-        &self,
-        input: MailSearchInput,
-    ) -> Result<(MailPage, Vec<crate::Warning>)> {
-        let page_limit = limit(input.limit.map(u32::from), 50, 100)?;
-        if let Some(cursor) = input.cursor {
-            let (items, next_cursor) = self.references.next_mail_page(&cursor, page_limit)?;
-            return Ok((MailPage { items, next_cursor }, Vec::new()));
-        }
-        if input.query.trim().is_empty() {
-            return Err(AppError::new(ErrorCode::ValidationFailed, "search query is empty"));
-        }
-        let backends = self.selected(input.account_ids.as_deref())?;
-        let query = input.query;
-        let results = join_all(backends.into_iter().map(|backend| {
-            let query = query.clone();
-            async move {
-                let id = backend.account().account_id;
-                (id, backend.search_mail(&query, 100).await)
-            }
-        }))
-        .await;
-        let (groups, warnings) = self.collect_partial(results)?;
-        let summaries = self.mail_summaries(groups.into_iter().flatten().collect())?;
-        let (items, next_cursor) = self.references.first_mail_page(summaries, page_limit)?;
-        Ok((MailPage { items, next_cursor }, warnings))
+        Ok((
+            MailPage { items, next_cursor, results_truncated: false, coverage: Vec::new() },
+            warnings,
+        ))
     }
 
     async fn mail_get_result(

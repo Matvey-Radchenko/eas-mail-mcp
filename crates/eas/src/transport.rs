@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+mod admission;
 use reqwest::redirect::Policy;
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -111,14 +112,25 @@ impl HttpTransport {
         request.send().await.map_err(|error| EasError::Network(error.to_string()))
     }
 
-    async fn normalize(&self, response: reqwest::Response) -> Result<TransportResponse> {
+    async fn normalize(
+        &self,
+        mut response: reqwest::Response,
+        limit: usize,
+        safety: RequestSafety,
+    ) -> Result<TransportResponse> {
         let url = response.url();
         if url.scheme() != "https" || url.host_str() != Some(self.profile.host.as_str()) {
-            return Err(EasError::Protocol("Exchange response origin changed".into()));
+            return Err(response_error(
+                safety,
+                EasError::Protocol("Exchange response origin changed".into()),
+            ));
         }
         let status = response.status().as_u16();
         if (300..400).contains(&status) {
-            return Err(EasError::Protocol("Exchange attempted an HTTP redirect".into()));
+            return Err(response_error(
+                safety,
+                EasError::Protocol("Exchange attempted an HTTP redirect".into()),
+            ));
         }
         if status == 401 {
             return Err(EasError::Authentication);
@@ -133,8 +145,23 @@ impl HttpTransport {
                 value.to_str().ok().map(|value| (name.as_str().to_owned(), value.to_owned()))
             })
             .collect();
-        let body =
-            response.bytes().await.map_err(|error| EasError::Network(error.to_string()))?.to_vec();
+        if matches!(status, 429 | 503) {
+            return Ok(TransportResponse { status, body: Vec::new(), headers });
+        }
+        if response.content_length().is_some_and(|length| length > limit as u64) {
+            return Err(response_error(safety, EasError::ResponseTooLarge));
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|error| response_error(safety, EasError::Network(error.to_string())))?
+        {
+            if chunk.len() > limit.saturating_sub(body.len()) {
+                return Err(response_error(safety, EasError::ResponseTooLarge));
+            }
+            body.extend_from_slice(&chunk);
+        }
         Ok(TransportResponse { status, body, headers })
     }
 
@@ -182,6 +209,7 @@ fn strict_client(extra_ca_pem: Option<&[u8]>) -> Result<reqwest::Client> {
 #[async_trait]
 impl Transport for HttpTransport {
     async fn options(&self) -> Result<TransportResponse> {
+        let _permit = admission::HTTP_GATE.acquire(RequestSafety::RetrySafe).await?;
         let credentials = self.credentials.lock().await;
         let request = self
             .client
@@ -190,7 +218,7 @@ impl Transport for HttpTransport {
         drop(credentials);
         let response =
             request.send().await.map_err(|error| EasError::Network(error.to_string()))?;
-        self.normalize(response).await
+        self.normalize(response, 64 * 1024, RequestSafety::RetrySafe).await
     }
 
     async fn command(
@@ -200,14 +228,17 @@ impl Transport for HttpTransport {
         policy_key: Option<u32>,
         safety: RequestSafety,
     ) -> Result<TransportResponse> {
+        let _permit = admission::HTTP_GATE.acquire(safety).await?;
         for delay in retry_delays(safety) {
             match self.send_once(command, body, policy_key).await {
-                Ok(response) => return self.normalize(response).await,
+                Ok(response) => {
+                    return self.normalize(response, response_limit(command, safety), safety).await;
+                }
                 Err(_) => tokio::time::sleep(*delay).await,
             }
         }
         match self.send_once(command, body, policy_key).await {
-            Ok(response) => self.normalize(response).await,
+            Ok(response) => self.normalize(response, response_limit(command, safety), safety).await,
             Err(error) => Err(final_error(safety, error)),
         }
     }
@@ -228,6 +259,24 @@ fn final_error(safety: RequestSafety, error: EasError) -> EasError {
     match safety {
         RequestSafety::RetrySafe => error,
         RequestSafety::Mutation => EasError::OutcomeUnknown,
+    }
+}
+
+fn response_error(safety: RequestSafety, error: EasError) -> EasError {
+    match safety {
+        RequestSafety::RetrySafe => error,
+        RequestSafety::Mutation => EasError::OutcomeUnknown,
+    }
+}
+
+fn response_limit(command: Command, safety: RequestSafety) -> usize {
+    if safety == RequestSafety::Mutation {
+        return 1024 * 1024;
+    }
+    match command {
+        Command::ItemOperations | Command::Sync => 36 * 1024 * 1024,
+        Command::Search | Command::FolderSync => 8 * 1024 * 1024,
+        _ => 1024 * 1024,
     }
 }
 

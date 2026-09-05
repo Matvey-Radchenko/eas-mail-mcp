@@ -134,6 +134,7 @@ async fn meeting_request_mail_ref_responds_through_search_long_id() -> anyhow::R
     let (runtime, _directory, journal) = make_runtime(backend.clone())?;
     let summary = runtime
         .mail_search(MailSearchInput {
+            filters: Default::default(),
             query: "meeting-request".into(),
             account_ids: Some(vec!["work".into()]),
             cursor: None,
@@ -190,6 +191,7 @@ async fn ordinary_mail_ref_is_rejected_before_journal_or_calendar_mutation() -> 
     let (runtime, _directory, journal) = make_runtime(backend.clone())?;
     let summary = runtime
         .mail_search(MailSearchInput {
+            filters: Default::default(),
             query: "ordinary".into(),
             account_ids: Some(vec!["work".into()]),
             cursor: None,

@@ -21,6 +21,10 @@ This document records engineering controls used by release builds.
 paths, proprietary-license residue, and any operator denylist terms in the
 tracked tree or Git history. Gitleaks scans the public tree and full history.
 When present, `.private/` receives a separate credential/private-key scan.
+An explicitly approved historical identity exception can match only one exact
+commit and the SHA-256 of its raw author/committer metadata; all content scans
+remain mandatory. The optional local exception file is inactive when absent.
+See [historical metadata audit controls](public-audit.md).
 
 Release builds remap workspace and Cargo source paths. `cargo xtask npm pack`
 checks binary size, architecture, code signature, local path leakage, package
@@ -36,9 +40,18 @@ operator denylist. Source releases contain no binaries or ignored files.
 - Remote wipe purges account credentials, process references, attachments, and
   journal rows.
 - Ambiguous mutations are not retried and return `OUTCOME_UNKNOWN`.
-- Partial Calendar lifecycles persist only a content-free completed-step mask
-  and are not retried with a new UUID automatically.
-- Independent stdio processes serialize mail and Calendar writes per account.
+- Partial Calendar lifecycles and auto-reply verification persist a content-free
+  completed-step mask and are not retried with a new UUID automatically. The
+  journal also retains minimal result locators for recovery after mail moves.
+- Independent stdio processes serialize mail, auto-reply, and Calendar writes
+  per account. Attachment cleanup and writes use a separate cross-process lock.
+- Single-write MCP failures and unknown replays set `isError`; acknowledged
+  partial results remain structured data with a recovery warning. Batches
+  preserve each item's status and never claim transaction semantics.
+- Outgoing file bytes enter the operation fingerprint and are checked again
+  before execution. The journal stores neither file paths nor attachment bytes.
+- Public doctor reports are generated from an explicit allowlist and exclude
+  account identifiers, server names, local paths, and mailbox content.
 - Write tools require account opt-in and an idempotency UUID. Client identity and
   version are diagnostic only.
 - An explicit MCP write-tool call executes immediately after validation. The

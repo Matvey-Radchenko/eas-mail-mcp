@@ -16,6 +16,8 @@ pub enum Command {
     SmartReply,
     /// Synchronize folder hierarchy.
     FolderSync,
+    /// Move one item between folders in the same mailbox.
+    MoveItems,
     /// Respond to a meeting request.
     MeetingResponse,
     /// Search the mailbox.
@@ -26,6 +28,8 @@ pub enum Command {
     Provision,
     /// Resolve directory recipients and retrieve free/busy data.
     ResolveRecipients,
+    /// Read or update out-of-office settings.
+    Settings,
 }
 
 impl Command {
@@ -38,11 +42,13 @@ impl Command {
             Self::SmartForward => "SmartForward",
             Self::SmartReply => "SmartReply",
             Self::FolderSync => "FolderSync",
+            Self::MoveItems => "MoveItems",
             Self::MeetingResponse => "MeetingResponse",
             Self::Search => "Search",
             Self::ItemOperations => "ItemOperations",
             Self::Provision => "Provision",
             Self::ResolveRecipients => "ResolveRecipients",
+            Self::Settings => "Settings",
         }
     }
 
@@ -53,11 +59,13 @@ impl Command {
             Self::SmartForward => 0x02,
             Self::SmartReply => 0x03,
             Self::FolderSync => 0x09,
+            Self::MoveItems => 0x0D,
             Self::MeetingResponse => 0x0F,
             Self::Search => 0x10,
             Self::ItemOperations => 0x13,
             Self::Provision => 0x14,
             Self::ResolveRecipients => 0x15,
+            Self::Settings => 0x11,
         }
     }
 }

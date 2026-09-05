@@ -2,6 +2,8 @@
 
 mod eas_mailbox;
 mod model;
+mod unavailable;
+pub(crate) use unavailable::UnavailableBackend;
 
 use async_trait::async_trait;
 
@@ -11,7 +13,7 @@ pub use eas_mailbox::EasMailbox;
 pub(crate) use eas_mailbox::VerificationStage;
 pub use model::{
     BackendAccount, BackendCalendarMutation, BackendCalendarSearch, BackendCapabilities,
-    BackendEvent, BackendMail, BackendSync, MailSource, OutgoingMail,
+    BackendEvent, BackendMail, BackendMailSearchPage, BackendSync, MailSource, OutgoingMail,
 };
 
 /// Network-backed operations for exactly one configured account.
@@ -20,8 +22,29 @@ pub trait AccountBackend: Send + Sync {
     /// Returns safe account metadata.
     fn account(&self) -> BackendAccount;
 
+    /// Known local account setup failure; absence does not imply verified connectivity.
+    fn configuration_error(&self) -> Option<crate::ErrorEnvelope> {
+        None
+    }
+
     /// Negotiates and returns optional server capabilities.
     async fn capabilities(&self) -> Result<BackendCapabilities>;
+
+    /// Reads automatic-reply settings without changing them.
+    async fn get_auto_reply(&self) -> Result<eas_mail_protocol::OofSettings> {
+        Err(crate::AppError::new(
+            crate::ErrorCode::FeatureUnavailable,
+            "automatic replies are unavailable",
+        ))
+    }
+
+    /// Applies one Settings/Oof Set; the caller verifies it with a separate read.
+    async fn set_auto_reply(&self, _settings: &eas_mail_protocol::OofSettings) -> Result<()> {
+        Err(crate::AppError::new(
+            crate::ErrorCode::FeatureUnavailable,
+            "automatic replies are unavailable",
+        ))
+    }
 
     /// Refreshes and returns the managed folder hierarchy.
     async fn folders(&self) -> Result<Vec<eas_mail_protocol::Folder>>;
@@ -34,6 +57,27 @@ pub trait AccountBackend: Send + Sync {
 
     /// Performs EAS Search and returns server results.
     async fn search_mail(&self, query: &str, limit: usize) -> Result<Vec<BackendMail>>;
+
+    /// Retrieves one bounded EAS Search page without synchronizing mail collections.
+    async fn search_mail_page(
+        &self,
+        query: &eas_mail_protocol::MailSearchQuery,
+        start: usize,
+        limit: usize,
+    ) -> Result<BackendMailSearchPage>;
+
+    /// Resolves one mutable mail locator by ItemOperations, with no Sync fallback.
+    async fn resolve_mail_source(&self, source: &MailSource) -> Result<BackendMail> {
+        let mail = self.fetch_mail(source, 1).await?;
+        if matches!(mail.source, MailSource::Item { .. }) {
+            Ok(mail)
+        } else {
+            Err(crate::AppError::new(
+                crate::ErrorCode::FeatureUnavailable,
+                "Exchange did not provide mutable identifiers for this message",
+            ))
+        }
+    }
 
     /// Searches only the account's global address list.
     async fn search_people(
@@ -106,8 +150,39 @@ pub trait AccountBackend: Send + Sync {
     /// Sends a prebuilt calendar MIME message through EAS SendMail.
     async fn send_calendar_message(&self, client_id: &str, mime: Vec<u8>) -> Result<()>;
 
+    /// Checks process-local property-write prerequisites before an operation UUID is claimed.
+    /// This check must not synchronize or issue any other network request.
+    async fn check_mail_property_ready(&self, _source: &MailSource) -> Result<()> {
+        Ok(())
+    }
+
     /// Changes one message's read state.
     async fn mark_read(&self, source: &MailSource, is_read: bool) -> Result<()>;
+
+    /// Moves one message within this account and returns its resulting locator.
+    async fn move_mail(&self, _source: &MailSource, _destination: &str) -> Result<MailSource> {
+        Err(crate::AppError::new(crate::ErrorCode::FeatureUnavailable, "mail move is unavailable"))
+    }
+
+    /// Changes flag status while preserving supported existing flag parameters.
+    async fn set_mail_flag(&self, _source: &MailSource, _status: u8) -> Result<()> {
+        Err(crate::AppError::new(
+            crate::ErrorCode::FeatureUnavailable,
+            "mail flags are unavailable",
+        ))
+    }
+
+    /// Replaces the message category set; an empty set clears it.
+    async fn set_mail_categories(
+        &self,
+        _source: &MailSource,
+        _categories: &[String],
+    ) -> Result<()> {
+        Err(crate::AppError::new(
+            crate::ErrorCode::FeatureUnavailable,
+            "mail categories are unavailable",
+        ))
+    }
 
     /// Sends a new message.
     async fn send(&self, client_id: &str, message: &OutgoingMail) -> Result<()>;

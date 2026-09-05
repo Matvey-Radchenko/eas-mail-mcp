@@ -37,6 +37,7 @@ pub(crate) fn check(root: &Path) -> Result<()> {
         run(root, "sh", ["-n", "scripts/install.sh", "scripts/uninstall.sh"])?;
     }
     goldens::run(root, false)?;
+    crate::contract::run(root, false)?;
     test(root)?;
     coverage(root)?;
     run(root, "cargo", ["deny", "check"])?;

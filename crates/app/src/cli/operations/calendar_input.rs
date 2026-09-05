@@ -1,7 +1,8 @@
 use super::calendar_args::{
     AttendeeArgs, CalendarAgendaArgs, CalendarAvailabilityArgs, CalendarCancelArgs,
     CalendarCreateArgs, CalendarDeleteArgs, CalendarFindSlotsArgs, CalendarGetArgs,
-    CalendarRespondArgs, CalendarSearchArgs, CalendarUpdateArgs, ScheduleArgs,
+    CalendarRecurringSlotsArgs, CalendarRespondArgs, CalendarSearchArgs, CalendarUpdateArgs,
+    ScheduleArgs,
 };
 use super::common::{BusyStatusArg, ResponseArg};
 use super::input::{
@@ -11,9 +12,10 @@ use super::input::{
 use crate::Result;
 use crate::model::{
     CalendarAttendeeInput, CalendarAttendeeRole, CalendarAvailabilityInput, CalendarBusyStatus,
-    CalendarCancelInput, CalendarCreateInput, CalendarDeleteInput, CalendarFindSlotsInput,
-    CalendarGetInput, CalendarRespondInput, CalendarResponseChoice, CalendarScheduleInput,
-    CalendarSearchInput, CalendarUpdateInput, ScheduleWeekday, WorkingHoursInput,
+    CalendarCancelInput, CalendarCreateInput, CalendarDeleteInput, CalendarFindRecurringSlotsInput,
+    CalendarFindSlotsInput, CalendarGetInput, CalendarRespondInput, CalendarResponseChoice,
+    CalendarScheduleInput, CalendarSearchInput, CalendarUpdateInput, ScheduleWeekday,
+    WorkingHoursInput,
 };
 
 pub(super) fn availability(
@@ -37,15 +39,14 @@ pub(super) fn availability(
 }
 
 pub(super) fn find_slots(arguments: CalendarFindSlotsArgs) -> Result<CalendarFindSlotsInput> {
-    let has_flags = availability_flags(&arguments.availability)
-        || arguments.duration.is_some()
-        || arguments.allow_tentative
-        || arguments.limit.is_some();
+    let has_flags = slots_flags(&arguments);
     ensure_flag_mode(arguments.availability.source.input.as_ref(), has_flags)?;
     if let Some(path) = arguments.availability.source.input {
         return read_json(&path);
     }
     Ok(CalendarFindSlotsInput {
+        participant_options: Vec::new(),
+        buffer_minutes: arguments.buffer.unwrap_or(0),
         account_id: arguments.availability.account,
         participants: arguments.availability.participants,
         date_from: required(arguments.availability.date_from, "from")?,
@@ -56,6 +57,26 @@ pub(super) fn find_slots(arguments: CalendarFindSlotsArgs) -> Result<CalendarFin
         allow_tentative: arguments.allow_tentative,
         limit: arguments.limit,
     })
+}
+
+pub(super) fn recurring_slots(
+    arguments: CalendarRecurringSlotsArgs,
+) -> Result<CalendarFindRecurringSlotsInput> {
+    let has_flags = slots_flags(&arguments.schedule) || arguments.weekday.is_some();
+    ensure_flag_mode(arguments.schedule.availability.source.input.as_ref(), has_flags)?;
+    if let Some(path) = arguments.schedule.availability.source.input.as_ref() {
+        return read_json(path);
+    }
+    let weekday = parse_weekday(&required(arguments.weekday, "weekday")?)?;
+    Ok(CalendarFindRecurringSlotsInput { schedule: find_slots(arguments.schedule)?, weekday })
+}
+
+fn slots_flags(arguments: &CalendarFindSlotsArgs) -> bool {
+    availability_flags(&arguments.availability)
+        || arguments.duration.is_some()
+        || arguments.allow_tentative
+        || arguments.limit.is_some()
+        || arguments.buffer.is_some()
 }
 
 pub(super) fn search(arguments: CalendarSearchArgs) -> Result<CalendarSearchInput> {
@@ -439,3 +460,7 @@ mod tests {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "calendar_slots_input_tests.rs"]
+mod slots_tests;

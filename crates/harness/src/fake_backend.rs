@@ -5,10 +5,16 @@ use std::time::Duration;
 
 #[path = "fake_backend/calendar_control.rs"]
 mod calendar_control;
+#[path = "fake_backend/control.rs"]
+mod control;
 #[path = "fake_backend/fixtures.rs"]
 mod fixtures;
 #[path = "fake_backend/mail.rs"]
 mod mail_fixture;
+#[path = "fake_backend/mail_mutations.rs"]
+mod mail_mutations;
+#[path = "fake_backend/oof.rs"]
+mod oof;
 
 use async_trait::async_trait;
 use eas_mail_mcp::backend::{
@@ -17,8 +23,8 @@ use eas_mail_mcp::backend::{
 };
 use eas_mail_mcp::{AppError, ErrorCode, Result};
 use eas_mail_protocol::{
-    CandidateAvailability, Folder, FreeBusyStatus, MeetingResponseChoice, ProfileKey,
-    RecipientAvailability, RecipientResolution, ResolvedRecipient,
+    CandidateAvailability, Folder, FreeBusyStatus, MeetingResponseChoice, RecipientAvailability,
+    RecipientResolution, ResolvedRecipient,
 };
 
 use self::fixtures::{
@@ -33,199 +39,19 @@ pub struct FakeBackend {
     failure: Mutex<Option<ErrorCode>>,
     operation_failure: Mutex<Option<(String, usize, ErrorCode)>>,
     mail_count: usize,
+    mail_items: Mutex<BTreeMap<MailSource, BackendMail>>,
+    removed_mail: Mutex<std::collections::BTreeSet<MailSource>>,
     include_series: bool,
     operations: Mutex<Vec<String>>,
     calendar_items: Mutex<BTreeMap<String, BackendEvent>>,
     calendar_messages: Mutex<Vec<Vec<u8>>>,
+    outgoing_messages: Mutex<Vec<OutgoingMail>>,
     calendar_responses: Mutex<Vec<Option<chrono::DateTime<chrono::Utc>>>>,
     source_resolutions: AtomicUsize,
     created_events: AtomicUsize,
     capabilities: BackendCapabilities,
+    oof: Mutex<oof::OofFixture>,
     delay: Duration,
-}
-
-impl FakeBackend {
-    /// Creates a successful backend with write tools enabled.
-    #[must_use]
-    pub fn new(account_id: &str) -> Self {
-        let calendar_items = [
-            event(account_id),
-            personal_event(account_id),
-            received_event(account_id),
-            recurring_event(account_id),
-        ]
-        .into_iter()
-        .filter_map(|value| value.server_id.clone().map(|key| (key, value)))
-        .collect();
-        Self {
-            account: BackendAccount {
-                account_id: account_id.into(),
-                profile: ProfileKey::default(),
-                email: format!("{account_id}@example.invalid"),
-                email_domains: vec!["example.invalid".into()],
-                enabled: true,
-                write_enabled: true,
-            },
-            failure: Mutex::new(None),
-            operation_failure: Mutex::new(None),
-            mail_count: 1,
-            include_series: false,
-            operations: Mutex::new(Vec::new()),
-            calendar_items: Mutex::new(calendar_items),
-            calendar_messages: Mutex::new(Vec::new()),
-            calendar_responses: Mutex::new(Vec::new()),
-            source_resolutions: AtomicUsize::new(0),
-            created_events: AtomicUsize::new(0),
-            capabilities: BackendCapabilities {
-                calendar_availability: true,
-                mail_writes: true,
-                personal_calendar_writes: true,
-                meeting_lifecycle: true,
-            },
-            delay: Duration::ZERO,
-        }
-    }
-
-    /// Creates a backend that returns a retryable network error.
-    #[must_use]
-    pub fn failing(account_id: &str) -> Self {
-        Self { failure: Mutex::new(Some(ErrorCode::NetworkUnreachable)), ..Self::new(account_id) }
-    }
-
-    /// Configures the number of deterministic messages returned by list and search.
-    #[must_use]
-    pub const fn with_mail_count(mut self, count: usize) -> Self {
-        self.mail_count = count;
-        self
-    }
-
-    /// Enables or disables account-level write tools.
-    #[must_use]
-    pub const fn with_writes_enabled(mut self, enabled: bool) -> Self {
-        self.account.write_enabled = enabled;
-        self
-    }
-
-    /// Replaces safe account identity metadata for account-selection tests.
-    #[must_use]
-    pub fn with_identity(mut self, email: &str, domains: &[&str]) -> Self {
-        self.account.email = email.into();
-        self.account.email_domains = domains.iter().map(|value| (*value).into()).collect();
-        self
-    }
-
-    /// Adds deterministic latency to each asynchronous backend operation.
-    #[must_use]
-    pub const fn with_delay(mut self, delay: Duration) -> Self {
-        self.delay = delay;
-        self
-    }
-
-    /// Replaces Calendar write capability flags for preflight tests.
-    #[must_use]
-    pub const fn with_calendar_capabilities(mut self, personal: bool, meeting: bool) -> Self {
-        self.capabilities.personal_calendar_writes = personal;
-        self.capabilities.meeting_lifecycle = meeting;
-        self
-    }
-
-    /// Selects a deterministic account failure or restores normal operation.
-    pub fn set_failure(&self, value: Option<ErrorCode>) -> Result<()> {
-        *self.failure.lock().map_err(|_| failure(ErrorCode::StorageError))? = value;
-        Ok(())
-    }
-
-    /// Fails one named operation until the failure is explicitly cleared.
-    pub fn set_operation_failure(&self, name: Option<&str>, code: ErrorCode) -> Result<()> {
-        *self.operation_failure.lock().map_err(|_| failure(ErrorCode::StorageError))? =
-            name.map(|value| (value.to_owned(), 0, code));
-        Ok(())
-    }
-
-    /// Returns mutation names recorded by the fake backend.
-    pub fn operations(&self) -> Result<Vec<String>> {
-        self.operations
-            .lock()
-            .map(|values| values.clone())
-            .map_err(|_| failure(ErrorCode::StorageError))
-    }
-
-    /// Returns how many mutable-source resolutions were attempted.
-    #[must_use]
-    pub fn source_resolutions(&self) -> usize {
-        self.source_resolutions.load(Ordering::Relaxed)
-    }
-
-    async fn check(&self) -> Result<()> {
-        if !self.delay.is_zero() {
-            tokio::time::sleep(self.delay).await;
-        }
-        self.failure
-            .lock()
-            .map_err(|_| failure(ErrorCode::StorageError))?
-            .map_or(Ok(()), |code| Err(failure(code)))
-    }
-
-    async fn check_operation(&self, name: &str) -> Result<()> {
-        self.check().await?;
-        let mut scripted =
-            self.operation_failure.lock().map_err(|_| failure(ErrorCode::StorageError))?;
-        if let Some((expected, remaining, code)) = scripted.as_mut()
-            && expected == name
-        {
-            if *remaining == 0 {
-                return Err(failure(*code));
-            }
-            *remaining -= 1;
-        }
-        Ok(())
-    }
-
-    fn record(&self, value: &str) -> Result<()> {
-        self.operations.lock().map_err(|_| failure(ErrorCode::StorageError))?.push(value.into());
-        Ok(())
-    }
-
-    fn calendar_item(&self, source: &BackendEvent) -> Result<BackendEvent> {
-        let key = source
-            .server_id
-            .as_deref()
-            .filter(|value| !value.is_empty())
-            .or_else(|| (!source.long_id.is_empty()).then_some(source.long_id.as_str()))
-            .ok_or_else(|| failure(ErrorCode::NotFound))?;
-        self.calendar_items
-            .lock()
-            .map_err(|_| failure(ErrorCode::StorageError))?
-            .get(key)
-            .cloned()
-            .ok_or_else(|| failure(ErrorCode::NotFound))
-    }
-
-    fn store_calendar_item(&self, value: BackendEvent) -> Result<()> {
-        let key = value.server_id.clone().ok_or_else(|| failure(ErrorCode::ProtocolError))?;
-        self.calendar_items
-            .lock()
-            .map_err(|_| failure(ErrorCode::StorageError))?
-            .insert(key, value);
-        Ok(())
-    }
-
-    fn remove_calendar_item(&self, source: &BackendEvent) -> Result<()> {
-        let key = source
-            .server_id
-            .as_deref()
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| failure(ErrorCode::NotFound))?;
-        if !key.starts_with("event-created") {
-            return Ok(());
-        }
-        self.calendar_items
-            .lock()
-            .map_err(|_| failure(ErrorCode::StorageError))?
-            .remove(key)
-            .map(|_| ())
-            .ok_or_else(|| failure(ErrorCode::NotFound))
-    }
 }
 
 #[async_trait]
@@ -242,6 +68,14 @@ impl AccountBackend for FakeBackend {
     async fn folders(&self) -> Result<Vec<Folder>> {
         self.check().await?;
         Ok(folders())
+    }
+
+    async fn get_auto_reply(&self) -> Result<eas_mail_protocol::OofSettings> {
+        self.read_auto_reply_fixture().await
+    }
+
+    async fn set_auto_reply(&self, settings: &eas_mail_protocol::OofSettings) -> Result<()> {
+        self.write_auto_reply_fixture(settings).await
     }
 
     async fn sync_mail(&self) -> Result<BackendSync> {
@@ -278,6 +112,25 @@ impl AccountBackend for FakeBackend {
             .collect())
     }
 
+    async fn search_mail_page(
+        &self,
+        query: &eas_mail_protocol::MailSearchQuery,
+        start: usize,
+        limit: usize,
+    ) -> Result<eas_mail_mcp::backend::BackendMailSearchPage> {
+        let items = self.search_mail(&query.text, 1000).await?;
+        let total = items.len();
+        let items = items.into_iter().skip(start).take(limit).collect::<Vec<_>>();
+        let range = (!items.is_empty())
+            .then(|| eas_mail_protocol::SearchRange { start, end: start + items.len() - 1 });
+        Ok(eas_mail_mcp::backend::BackendMailSearchPage {
+            items,
+            total: Some(total),
+            range,
+            server_truncated: false,
+        })
+    }
+
     async fn search_people(
         &self,
         query: &str,
@@ -308,7 +161,31 @@ impl AccountBackend for FakeBackend {
 
     async fn fetch_mail(&self, source: &MailSource, _: usize) -> Result<BackendMail> {
         self.check().await?;
-        Ok(mail(&self.account.account_id, source.clone()))
+        self.stored_mail(source)
+    }
+
+    async fn resolve_mail_source(&self, source: &MailSource) -> Result<BackendMail> {
+        self.check().await?;
+        let source = match source {
+            MailSource::LongId(id) if id.starts_with("long-message-") => MailSource::Item {
+                folder_id: "inbox".into(),
+                server_id: id.replacen("long-message-", "message-", 1),
+            },
+            other => other.clone(),
+        };
+        self.stored_mail(&source)
+    }
+
+    async fn move_mail(&self, source: &MailSource, destination: &str) -> Result<MailSource> {
+        self.fake_move(source, destination).await
+    }
+
+    async fn set_mail_flag(&self, source: &MailSource, status: u8) -> Result<()> {
+        self.fake_flag(source, status).await
+    }
+
+    async fn set_mail_categories(&self, source: &MailSource, categories: &[String]) -> Result<()> {
+        self.fake_categories(source, categories).await
     }
 
     async fn fetch_attachment(&self, _: &str) -> Result<Vec<u8>> {
@@ -460,23 +337,34 @@ impl AccountBackend for FakeBackend {
         self.record("calendar_send")
     }
 
-    async fn mark_read(&self, _: &MailSource, _: bool) -> Result<()> {
-        self.check_operation("mail_mark_read").await?;
-        self.record("mail_mark_read")
+    async fn mark_read(&self, source: &MailSource, is_read: bool) -> Result<()> {
+        self.fake_read(source, is_read).await
     }
 
-    async fn send(&self, _: &str, _: &OutgoingMail) -> Result<()> {
+    async fn send(&self, _: &str, message: &OutgoingMail) -> Result<()> {
         self.check_operation("mail_send").await?;
+        self.outgoing_messages
+            .lock()
+            .map_err(|_| failure(ErrorCode::StorageError))?
+            .push(message.clone());
         self.record("mail_send")
     }
 
-    async fn reply(&self, _: &str, _: &MailSource, _: &OutgoingMail) -> Result<()> {
+    async fn reply(&self, _: &str, _: &MailSource, message: &OutgoingMail) -> Result<()> {
         self.check_operation("mail_reply").await?;
+        self.outgoing_messages
+            .lock()
+            .map_err(|_| failure(ErrorCode::StorageError))?
+            .push(message.clone());
         self.record("mail_reply")
     }
 
-    async fn forward(&self, _: &str, _: &MailSource, _: &OutgoingMail) -> Result<()> {
+    async fn forward(&self, _: &str, _: &MailSource, message: &OutgoingMail) -> Result<()> {
         self.check_operation("mail_forward").await?;
+        self.outgoing_messages
+            .lock()
+            .map_err(|_| failure(ErrorCode::StorageError))?
+            .push(message.clone());
         self.record("mail_forward")
     }
 }

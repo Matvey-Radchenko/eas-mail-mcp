@@ -21,12 +21,13 @@ use crate::{AppError, ErrorCode, Result};
 pub(super) struct CollectionState {
     pub(super) kind: CollectionKind,
     pub(super) sync_key: String,
+    pub(super) sync_complete: bool,
     pub(super) mail: BTreeMap<String, MailFields>,
 }
 
 impl CollectionState {
     pub(super) fn new(kind: CollectionKind) -> Self {
-        Self { kind, sync_key: "0".into(), mail: BTreeMap::new() }
+        Self { kind, sync_key: "0".into(), sync_complete: false, mail: BTreeMap::new() }
     }
 }
 
@@ -260,11 +261,22 @@ impl AccountBackend for EasMailbox {
             mail_writes: capabilities.supports_writes(),
             personal_calendar_writes: capabilities.supports_personal_calendar_writes(),
             meeting_lifecycle: capabilities.supports_meeting_lifecycle(),
+            auto_reply: capabilities.supports(eas_mail_protocol::Command::Settings),
+            mail_move: capabilities.supports(eas_mail_protocol::Command::MoveItems),
+            mail_properties: capabilities.supports(eas_mail_protocol::Command::Sync),
         })
     }
 
     async fn folders(&self) -> Result<Vec<Folder>> {
         self.refresh_folders().await
+    }
+
+    async fn get_auto_reply(&self) -> Result<eas_mail_protocol::OofSettings> {
+        self.read_auto_reply().await
+    }
+
+    async fn set_auto_reply(&self, settings: &eas_mail_protocol::OofSettings) -> Result<()> {
+        self.write_auto_reply(settings).await
     }
 
     async fn sync_mail(&self) -> Result<BackendSync> {
@@ -282,6 +294,15 @@ impl AccountBackend for EasMailbox {
 
     async fn search_mail(&self, query: &str, limit: usize) -> Result<Vec<BackendMail>> {
         self.search(query, limit).await
+    }
+
+    async fn search_mail_page(
+        &self,
+        query: &eas_mail_protocol::MailSearchQuery,
+        start: usize,
+        limit: usize,
+    ) -> Result<super::super::BackendMailSearchPage> {
+        self.search_page(query, start, limit).await
     }
 
     async fn search_people(
@@ -369,8 +390,28 @@ impl AccountBackend for EasMailbox {
         self.send_calendar_mime(client_id, mime).await
     }
 
+    async fn check_mail_property_ready(&self, source: &MailSource) -> Result<()> {
+        self.check_property_ready(source).await
+    }
+
     async fn mark_read(&self, source: &MailSource, is_read: bool) -> Result<()> {
         self.change_read(source, is_read).await
+    }
+
+    async fn move_mail(&self, source: &MailSource, destination: &str) -> Result<MailSource> {
+        self.move_message(source, destination).await
+    }
+
+    async fn set_mail_flag(&self, source: &MailSource, status: u8) -> Result<()> {
+        self.change_flag(source, status).await
+    }
+
+    async fn set_mail_categories(&self, source: &MailSource, categories: &[String]) -> Result<()> {
+        self.change_mail_property(
+            source,
+            &eas_mail_protocol::protocol::MailPatch::Categories(categories.to_vec()),
+        )
+        .await
     }
 
     async fn send(&self, client_id: &str, message: &OutgoingMail) -> Result<()> {

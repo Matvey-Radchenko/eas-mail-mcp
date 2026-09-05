@@ -1,3 +1,5 @@
+mod auto_reply;
+mod auto_reply_support;
 mod calendar;
 mod calendar_agenda;
 mod calendar_edits;
@@ -13,11 +15,22 @@ mod calendar_write_result;
 mod calendar_write_support;
 mod calendar_writes;
 mod convert;
+mod diagnostics;
+mod mail_batch;
+mod mail_cli_sync;
+mod mail_mutation;
+mod mail_search;
+mod mail_thread;
 mod mail_write_preview;
+mod mutation_journal;
+pub(crate) mod operation_reads;
 mod outgoing;
+mod outgoing_attachments;
 mod people;
+mod production;
 mod reads;
 mod schedule;
+mod slot_search;
 pub(crate) mod write_preview;
 mod writes;
 
@@ -29,7 +42,7 @@ use eas_mail_protocol::{ProfileKey, ProfileRegistry};
 use zeroize::Zeroize as _;
 
 use crate::attachment_cache::AttachmentCache;
-use crate::backend::{AccountBackend, EasMailbox};
+use crate::backend::AccountBackend;
 use crate::model::{ApiResponse, SyncReport, Warning};
 use crate::references::{Clock, IdGenerator, RandomIds, References, SystemClock};
 use crate::write_lock::WriteLocks;
@@ -59,26 +72,21 @@ impl Runtime {
         profiles: &ProfileRegistry,
     ) -> Result<Self> {
         paths.ensure()?;
-        config.validate_profiles(profiles)?;
+        config.validate()?;
         let journal: Arc<dyn OperationJournal> = Arc::new(SqliteJournal::open(&paths.journal)?);
         let _ = journal.prune()?;
         let secrets: Arc<dyn SecretStore> = Arc::new(KeychainStore::new(paths.journal.clone()));
         let bundle = secrets.load()?;
         let mut backends: Vec<Arc<dyn AccountBackend>> = Vec::new();
         for (account_id, account) in config.accounts {
-            if account.enabled {
-                let secret = bundle.accounts.get(&account_id).cloned().ok_or_else(|| {
-                    AppError::new(ErrorCode::AuthRequired, "account credentials are missing")
-                        .account(&account_id)
-                })?;
-                backends.push(Arc::new(EasMailbox::production_with_secret(
-                    account_id,
-                    account,
-                    Arc::clone(&secrets),
-                    secret,
-                    profiles,
-                )?));
-            }
+            let secret = bundle.accounts.get(&account_id).cloned();
+            backends.push(production::configured_backend(
+                account_id,
+                account,
+                Arc::clone(&secrets),
+                secret,
+                profiles,
+            ));
         }
         Self::with_dependencies(
             backends,
@@ -116,6 +124,11 @@ impl Runtime {
             AppError::new(ErrorCode::StorageError, "write lock directory is unavailable")
         })?;
         let write_locks = WriteLocks::new(lock_root.join("write-locks"))?;
+        for account_id in journal.pending_accounts()? {
+            if let Some(_guard) = write_locks.try_acquire(&account_id)? {
+                journal.recover_account(&account_id)?;
+            }
+        }
         let attachments = AttachmentCache::new(attachments_dir, Arc::clone(&clock))?;
         let mut indexed = BTreeMap::new();
         for backend in backends {
@@ -144,7 +157,7 @@ impl Runtime {
         &self,
         requested: Option<&[String]>,
     ) -> Result<Vec<Arc<dyn AccountBackend>>> {
-        if self.backends.is_empty() {
+        if self.backends.values().all(|backend| !backend.account().enabled) {
             return Err(AppError::new(
                 ErrorCode::ConfigInvalid,
                 "no enabled mail accounts are configured",
@@ -169,8 +182,9 @@ impl Runtime {
         let selected = self
             .backends
             .iter()
-            .filter(|(id, _)| {
-                !disabled.contains(id.as_str())
+            .filter(|(id, backend)| {
+                backend.account().enabled
+                    && !disabled.contains(id.as_str())
                     && ids.as_ref().is_none_or(|values| values.contains(id))
             })
             .map(|(_, backend)| Arc::clone(backend))
@@ -188,10 +202,14 @@ impl Runtime {
         if self.disabled_accounts.lock().map_err(|_| state_error())?.contains(account_id) {
             return Err(remote_wiped(account_id));
         }
-        self.backends.get(account_id).cloned().ok_or_else(|| {
-            AppError::new(ErrorCode::NotFound, "account is not configured or enabled")
-                .account(account_id)
-        })
+        self.backends
+            .get(account_id)
+            .filter(|backend| backend.account().enabled)
+            .cloned()
+            .ok_or_else(|| {
+                AppError::new(ErrorCode::NotFound, "account is not configured or enabled")
+                    .account(account_id)
+            })
     }
 
     pub(super) fn require_write(&self, account_id: &str) -> Result<Arc<dyn AccountBackend>> {
@@ -233,7 +251,9 @@ impl Runtime {
         if values.is_empty()
             && let Some((_, envelope)) = failures.first()
         {
-            return Err(AppError { envelope: envelope.clone() });
+            let mut envelope = envelope.clone();
+            envelope.account_errors = failures.into_iter().map(warning).collect();
+            return Err(AppError { envelope });
         }
         let warnings = failures.into_iter().map(warning).collect();
         Ok((values, warnings))
@@ -283,6 +303,10 @@ fn warning((account_id, envelope): (String, ErrorEnvelope)) -> Warning {
             .and_then(|value| value.as_str().map(str::to_owned))
             .unwrap_or_else(|| "PROTOCOL_ERROR".into()),
         message: envelope.message,
+        retryable: envelope.retryable,
+        remediation: envelope.remediation,
+        operation_id: envelope.operation_id,
+        retry_after_seconds: envelope.context.retry_after_seconds,
     }
 }
 
