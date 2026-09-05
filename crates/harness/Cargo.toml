@@ -86,7 +86,7 @@ test = false
 name = "soak-harness"
 path = "src/bin/soak-harness.rs"
 required-features = ["soak"]
-test = false
+test = true
 
 [dependencies]
 eas-mail-protocol = { version = "=1.0.0", path = "../eas" }

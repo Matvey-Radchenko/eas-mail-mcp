@@ -89,6 +89,9 @@ enum Task {
         /// Save progress and final acceptance evidence as JSON.
         #[arg(long)]
         report: Option<PathBuf>,
+        /// Apply the operator-approved four-hour exception for release 1.0.0 only.
+        #[arg(long, requires_all = ["application", "report"])]
+        four_hour_1_0_exception: bool,
     },
 }
 
@@ -156,8 +159,12 @@ fn main() -> anyhow::Result<()> {
         Task::Fuzz { seconds } => quality::fuzz(root, seconds),
         Task::Mutants => quality::mutants(root),
         Task::Perf { python } => performance::check(root, &python),
-        Task::Soak { hours, application, report } => {
-            soak::check(root, hours, application.as_deref(), report.as_deref())
-        }
+        Task::Soak { hours, application, report, four_hour_1_0_exception } => soak::check(
+            root,
+            hours,
+            application.as_deref(),
+            report.as_deref(),
+            four_hour_1_0_exception,
+        ),
     }
 }

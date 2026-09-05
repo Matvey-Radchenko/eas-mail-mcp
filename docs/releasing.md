@@ -75,6 +75,13 @@ cargo xtask soak --hours 8 \
   --report ./diagnostics/soak.json
 ```
 
+For 1.0.0 only, the operator explicitly approved a four-hour exception. Use
+`--hours 4 --four-hour-1-0-exception` with the exact `--application` and a durable
+`--report`. The report records `release-1.0.0-operator-approved-four-hours`;
+no failed or interrupted duration is accumulated. No new cycle starts after the
+deadline. An in-flight cycle that cannot finish within it fails acceptance.
+The normal eight-hour requirement remains unchanged for later releases.
+
 Use the actual extracted candidate path (`eas-mail-mcp.exe` on Windows).
 `--application` prevents rebuilding the application. The report records the
 binary SHA-256, start time, elapsed duration, and progress. Its sessions are

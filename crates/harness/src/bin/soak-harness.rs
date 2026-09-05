@@ -29,6 +29,9 @@ struct Arguments {
     interval_seconds: u64,
     #[arg(long)]
     report: Option<PathBuf>,
+    /// Apply the explicit one-time release 1.0.0 duration exception.
+    #[arg(long, requires = "report")]
+    four_hour_1_0_exception: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -41,6 +44,7 @@ struct Report {
     client_kind: &'static str,
     cycles_per_client: usize,
     acceptance_passed: bool,
+    duration_exception: Option<&'static str>,
 }
 
 struct ClientSession {
@@ -51,7 +55,14 @@ struct ClientSession {
 #[tokio::main]
 async fn main() -> Result<()> {
     let arguments = Arguments::parse();
-    anyhow::ensure!(arguments.hours >= MINIMUM_HOURS, "acceptance soak requires at least 8 hours");
+    let duration_exception = validate_duration(
+        arguments.hours,
+        arguments.four_hour_1_0_exception,
+        env!("CARGO_PKG_VERSION"),
+    )?;
+    if duration_exception.is_some() {
+        verify_exception_application(&arguments.application).await?;
+    }
     anyhow::ensure!(arguments.interval_seconds > 0, "soak interval must be positive");
     let duration = Duration::from_secs(
         arguments.hours.checked_mul(3_600).context("soak duration is too large")?,
@@ -66,15 +77,20 @@ async fn main() -> Result<()> {
         client_kind: "synthetic SDK sessions using supported client initialization profiles",
         cycles_per_client: 0,
         acceptance_passed: false,
+        duration_exception,
     };
     save_report(arguments.report.as_deref(), &report)?;
-    let deadline = Instant::now().checked_add(duration).context("soak deadline is invalid")?;
+    let deadline = started.checked_add(duration).context("soak deadline is invalid")?;
     let mut sessions = connect_clients(&arguments.application).await?;
     let mut cycles = 0;
     loop {
+        if Instant::now() >= deadline {
+            break;
+        }
         for session in &sessions {
-            check_cycle(&session.service)
+            tokio::time::timeout_at(deadline.into(), check_cycle(&session.service))
                 .await
+                .context("soak deadline interrupted an incomplete cycle")?
                 .with_context(|| format!("{} failed cycle {}", session.name, cycles + 1))?;
         }
         cycles += 1;
@@ -102,6 +118,34 @@ async fn main() -> Result<()> {
     save_report(arguments.report.as_deref(), &report)?;
     serde_json::to_writer_pretty(io::stdout().lock(), &report)?;
     writeln!(io::stdout().lock())?;
+    Ok(())
+}
+
+fn validate_duration(hours: u64, exception: bool, version: &str) -> Result<Option<&'static str>> {
+    if exception {
+        anyhow::ensure!(
+            version == "1.0.0" && hours == 4,
+            "the four-hour exception applies only to a four-hour release 1.0.0 soak"
+        );
+        Ok(Some("release-1.0.0-operator-approved-four-hours"))
+    } else {
+        anyhow::ensure!(hours >= MINIMUM_HOURS, "acceptance soak requires at least 8 hours");
+        Ok(None)
+    }
+}
+
+async fn verify_exception_application(application: &Path) -> Result<()> {
+    let output = tokio::time::timeout(
+        Duration::from_secs(20),
+        tokio::process::Command::new(application).arg("--version").kill_on_drop(true).output(),
+    )
+    .await
+    .context("cannot confirm exception application version")??;
+    anyhow::ensure!(
+        output.status.success()
+            && String::from_utf8_lossy(&output.stdout).trim() == "eas-mail-mcp 1.0.0",
+        "the four-hour exception requires the release 1.0.0 application"
+    );
     Ok(())
 }
 
@@ -218,6 +262,21 @@ fn arguments(value: Value) -> Result<Map<String, Value>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shortened_soak_records_only_the_exact_release_exception() -> Result<()> {
+        assert_eq!(
+            validate_duration(4, true, "1.0.0")?,
+            Some("release-1.0.0-operator-approved-four-hours")
+        );
+        assert_eq!(validate_duration(8, false, "1.0.1")?, None);
+        for (hours, enabled, version) in
+            [(4, false, "1.0.0"), (3, true, "1.0.0"), (8, true, "1.0.0"), (4, true, "1.0.1")]
+        {
+            assert!(validate_duration(hours, enabled, version).is_err());
+        }
+        Ok(())
+    }
 
     #[test]
     fn warning_diagnostics_contain_only_account_and_code() -> Result<()> {

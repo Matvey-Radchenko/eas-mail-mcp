@@ -9,8 +9,9 @@ pub(crate) fn check(
     hours: u64,
     application: Option<&Path>,
     report: Option<&Path>,
+    four_hour_exception: bool,
 ) -> Result<()> {
-    anyhow::ensure!(hours >= 8, "release soak requires at least 8 hours");
+    validate_duration(hours, four_hour_exception, env!("CARGO_PKG_VERSION"))?;
     if application.is_none() {
         run(root, "cargo", ["build", "--release", "--locked", "--package", "eas-mail-mcp"])?;
     }
@@ -40,5 +41,37 @@ pub(crate) fn check(
     if let Some(report) = report {
         args.extend(["--report".as_ref(), report.as_os_str()]);
     }
+    if four_hour_exception {
+        args.push("--four-hour-1-0-exception".as_ref());
+    }
     run(root, executable, args)
+}
+
+fn validate_duration(hours: u64, exception: bool, version: &str) -> Result<()> {
+    if exception {
+        anyhow::ensure!(
+            version == "1.0.0" && hours == 4,
+            "the four-hour exception applies only to a four-hour release 1.0.0 soak"
+        );
+    } else {
+        anyhow::ensure!(hours >= 8, "release soak requires at least 8 hours");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shortened_soak_requires_the_exact_one_time_exception() -> Result<()> {
+        validate_duration(4, true, "1.0.0")?;
+        validate_duration(8, false, "1.1.0")?;
+        for (hours, enabled, version) in
+            [(4, false, "1.0.0"), (3, true, "1.0.0"), (8, true, "1.0.0"), (4, true, "1.0.1")]
+        {
+            assert!(validate_duration(hours, enabled, version).is_err());
+        }
+        Ok(())
+    }
 }

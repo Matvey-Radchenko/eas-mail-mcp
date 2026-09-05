@@ -60,7 +60,9 @@ cargo xtask perf --python benchmarks/.venv/bin/python
 cargo xtask npm install-candidate
 ```
 
-The eight-hour read-only soak is required before promoting a stable release.
+The eight-hour read-only soak is required before promoting a stable release,
+except for the operator-approved four-hour 1.0.0 exception recorded in its
+[acceptance document](docs/releases/1.0.0-acceptance.md).
 The exact npm candidate must be installed and accepted before staged packages
 are approved. Follow [the npm release process](docs/releasing.md).
 
