@@ -33,7 +33,7 @@ pub(in crate::runtime) fn for_read(
         return Ok(source);
     };
     let master = calendar_prepare::from_fields(&source, now, super::read_properties(&source)?)?;
-    let event = selected(&master.mutation.application, original)?;
+    let event = super::occurrence::selected_for_read(&master.mutation.application, original)?;
     let mut output = super::edit::projected(&source, &event);
     output.occurrence_start = Some(original);
     output.fields.recurrence = source.fields.recurrence;
