@@ -5,6 +5,21 @@ use super::{invalid, stale, zone};
 use crate::Result;
 use crate::runtime::calendar_agenda::recurrence::pattern::Pattern;
 
+#[derive(Clone, Copy)]
+enum DurationPolicy {
+    Positive,
+    NonNegative,
+}
+
+impl DurationPolicy {
+    fn allows(self, duration: Duration) -> bool {
+        match self {
+            Self::Positive => duration > Duration::zero(),
+            Self::NonNegative => duration >= Duration::zero(),
+        }
+    }
+}
+
 pub(in crate::runtime) fn validate_member(
     master: &CalendarApplication,
     original: DateTime<Utc>,
@@ -29,15 +44,30 @@ pub(in crate::runtime) fn selected(
     master: &CalendarApplication,
     original: DateTime<Utc>,
 ) -> Result<CalendarApplication> {
+    select(master, original, DurationPolicy::Positive)
+}
+
+pub(super) fn selected_for_read(
+    master: &CalendarApplication,
+    original: DateTime<Utc>,
+) -> Result<CalendarApplication> {
+    select(master, original, DurationPolicy::NonNegative)
+}
+
+fn select(
+    master: &CalendarApplication,
+    original: DateTime<Utc>,
+    policy: DurationPolicy,
+) -> Result<CalendarApplication> {
     validate_member(master, original)?;
-    let mut event = base_occurrence(master, original)?;
+    let mut event = project_occurrence(master, original, policy)?;
     if let Some(exception) =
         master.properties.exceptions.iter().find(|value| value.original_start == original)
     {
         if exception.deleted {
             return Err(stale());
         }
-        apply_exception(&mut event, exception)?;
+        apply_exception(&mut event, exception, policy)?;
     }
     Ok(event)
 }
@@ -46,9 +76,17 @@ pub(in crate::runtime) fn base_occurrence(
     master: &CalendarApplication,
     original: DateTime<Utc>,
 ) -> Result<CalendarApplication> {
+    project_occurrence(master, original, DurationPolicy::Positive)
+}
+
+fn project_occurrence(
+    master: &CalendarApplication,
+    original: DateTime<Utc>,
+    policy: DurationPolicy,
+) -> Result<CalendarApplication> {
     let zone = zone(master)?;
     let duration = zone.to_local(master.ends_at)? - zone.to_local(master.starts_at)?;
-    if duration <= Duration::zero() || duration > Duration::days(366) {
+    if !policy.allows(duration) || duration > Duration::days(366) {
         return Err(invalid("recurring duration is invalid"));
     }
     let mut event = master.clone();
@@ -62,9 +100,10 @@ pub(in crate::runtime) fn base_occurrence(
     Ok(event)
 }
 
-pub(in crate::runtime) fn apply_exception(
+fn apply_exception(
     event: &mut CalendarApplication,
     exception: &CalendarException,
+    policy: DurationPolicy,
 ) -> Result<()> {
     let fields = &exception.fields;
     replace(&mut event.subject, &fields.subject);
@@ -92,7 +131,7 @@ pub(in crate::runtime) fn apply_exception(
             event.properties.categories.clone_from(&properties.categories);
         }
     }
-    if event.ends_at <= event.starts_at {
+    if !policy.allows(event.ends_at - event.starts_at) {
         return Err(invalid("recurrence exception has invalid duration"));
     }
     Ok(())
