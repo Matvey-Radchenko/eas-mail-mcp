@@ -27,7 +27,7 @@ pub(super) fn expand(
     let starts_at = required_time(&event.fields.starts_at, "Recurring event has no start time")?;
     let ends_at = required_time(&event.fields.ends_at, "Recurring event has no end time")?;
     let elapsed = ends_at.signed_duration_since(starts_at);
-    if elapsed <= Duration::zero() || elapsed > Duration::days(MAX_EVENT_DURATION_DAYS) {
+    if elapsed < Duration::zero() || elapsed > Duration::days(MAX_EVENT_DURATION_DAYS) {
         return Err(protocol("Recurring event duration is outside supported bounds"));
     }
     let zone = EventTimeZone::parse(string(&event.fields.time_zone), fallback_zone)?;
@@ -137,7 +137,7 @@ fn occurrence(
     let duration = end.signed_duration_since(start);
     let start = exception.and_then(|value| value.start).unwrap_or(start);
     let end = exception.and_then(|value| value.end).unwrap_or(start + duration);
-    if end <= start {
+    if end < start {
         return Err(protocol("Calendar recurrence exception has an invalid duration"));
     }
     event.fields.starts_at = Patch::Value(Some(start));
@@ -164,6 +164,8 @@ fn occurrence(
 
 fn overlaps_event(event: &BackendEvent, range: AgendaRange) -> bool {
     match (event_start(event), event_end(event)) {
+        // Exchange stores zero-length appointments; they are points in the half-open range.
+        (Some(start), Some(end)) if end == start => start >= range.start && start < range.end,
         (Some(start), Some(end)) => start < range.end && end > range.start,
         _ => false,
     }

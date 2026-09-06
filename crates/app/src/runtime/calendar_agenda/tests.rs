@@ -40,6 +40,32 @@ fn weekly_recurrence_expands_only_inside_the_requested_range() -> anyhow::Result
 }
 
 #[test]
+fn zero_length_recurrence_expands_as_a_point_inside_the_range() -> anyhow::Result<()> {
+    let mut event = event_at("2026-08-03T09:00:00Z", "2026-08-03T09:00:00Z")?;
+    event.fields.recurrence = recurrence([("type", "1"), ("dayofweek", "2")]);
+    let range = range("2026-08-10T00:00:00Z", "2026-08-17T00:00:00Z")?;
+    let events = recurrence::expand(event, range, chrono_tz::UTC)?;
+    assert_eq!(
+        event_times(&events),
+        vec![("2026-08-10T09:00:00+00:00".into(), "2026-08-10T09:00:00+00:00".into())]
+    );
+    Ok(())
+}
+
+#[test]
+fn zero_length_recurrence_honours_the_half_open_range_edges() -> anyhow::Result<()> {
+    let mut event = event_at("2026-08-03T00:00:00Z", "2026-08-03T00:00:00Z")?;
+    event.fields.recurrence = recurrence([("type", "1"), ("dayofweek", "2")]);
+    let range = range("2026-08-10T00:00:00Z", "2026-08-17T00:00:00Z")?;
+    let events = recurrence::expand(event, range, chrono_tz::UTC)?;
+    assert_eq!(
+        event_times(&events),
+        vec![("2026-08-10T00:00:00+00:00".into(), "2026-08-10T00:00:00+00:00".into())]
+    );
+    Ok(())
+}
+
+#[test]
 fn recurring_wall_time_survives_dst_transition() -> anyhow::Result<()> {
     let mut event = event_at("2026-03-23T08:00:00Z", "2026-03-23T09:00:00Z")?;
     event.fields.recurrence = recurrence([("type", "0"), ("interval", "1")]);
