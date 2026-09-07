@@ -105,11 +105,9 @@ impl AccountBackend for FakeBackend {
     async fn search_mail(&self, query: &str, _: usize) -> Result<Vec<BackendMail>> {
         self.check().await?;
         let prefix = if query == "meeting-request" { "meeting-request" } else { "long-message" };
-        Ok((0..self.mail_count)
-            .map(|index| {
-                mail(&self.account.account_id, MailSource::LongId(format!("{prefix}-{index}")))
-            })
-            .collect())
+        (0..self.mail_count)
+            .map(|index| self.stored_mail(&MailSource::LongId(format!("{prefix}-{index}"))))
+            .collect()
     }
 
     async fn search_mail_page(

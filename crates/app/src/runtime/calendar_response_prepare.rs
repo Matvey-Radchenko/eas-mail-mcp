@@ -1,10 +1,11 @@
 use chrono::{DateTime, Utc};
 use eas_mail_protocol::{
-    CalendarApplication, CalendarAttendee, MeetingRequest, Patch, protocol::global_object_id_uid,
+    CalendarApplication, CalendarAttendee, MailFields, MeetingRequest, Patch,
+    protocol::global_object_id_uid,
 };
 
 use super::calendar_prepare::PreparedEvent;
-use crate::backend::{BackendCalendarMutation, BackendMail};
+use crate::backend::BackendCalendarMutation;
 use crate::sanitize::{mailbox, plain_text};
 use crate::{AppError, ErrorCode, Result};
 
@@ -13,17 +14,20 @@ pub(super) struct PreparedMeetingRequest {
     pub(super) organizer: CalendarAttendee,
 }
 
-pub(super) fn prepare(mail: &BackendMail, now: DateTime<Utc>) -> Result<PreparedMeetingRequest> {
-    let request = request(&mail.fields.meeting_request)?;
-    let message_class = string(&mail.fields.message_class);
+pub(super) fn prepare(mail: &MailFields, now: DateTime<Utc>) -> Result<PreparedMeetingRequest> {
+    let request = request(&mail.meeting_request)?;
+    let message_class = string(&mail.message_class);
     if !message_class.to_ascii_lowercase().contains(".meeting.request")
         || !matches!(request.message_type, 1 | 2)
         || !request.response_requested
     {
         return Err(validation("mail reference is not an actionable meeting request"));
     }
-    if request.instance_type != 0 {
-        return Err(validation("recurring events and recurrence exceptions are read-only"));
+    if !matches!(request.instance_type, 0 | 1) {
+        return Err(AppError::new(
+            ErrorCode::FeatureUnavailable,
+            "This invitation refers to an occurrence, not the whole series",
+        ).remediation("Find the occurrence with calendar_search and use its event_ref with scope=occurrence; otherwise respond in Outlook"));
     }
     let starts_at =
         request.starts_at.ok_or_else(|| protocol("meeting request start is missing"))?;
@@ -31,7 +35,7 @@ pub(super) fn prepare(mail: &BackendMail, now: DateTime<Utc>) -> Result<Prepared
     if starts_at >= ends_at {
         return Err(protocol("meeting request time range is invalid"));
     }
-    let organizer = organizer(request, string(&mail.fields.sender))?;
+    let organizer = organizer(request)?;
     let uid = if request.uid.is_empty() {
         global_object_id_uid(&request.global_object_id).map_err(AppError::from)?
     } else {
@@ -50,8 +54,8 @@ pub(super) fn prepare(mail: &BackendMail, now: DateTime<Utc>) -> Result<Prepared
                     starts_at,
                     ends_at,
                     all_day: request.all_day,
-                    subject: plain_text(string(&mail.fields.subject)),
-                    body: plain_text(string(&mail.fields.body)),
+                    subject: plain_text(string(&mail.subject)),
+                    body: plain_text(string(&mail.body)),
                     location: plain_text(&request.location),
                     reminder_minutes: request.reminder_minutes,
                     busy_status: request.busy_status.min(3),
@@ -66,11 +70,14 @@ pub(super) fn prepare(mail: &BackendMail, now: DateTime<Utc>) -> Result<Prepared
     })
 }
 
-fn organizer(request: &MeetingRequest, fallback: &str) -> Result<CalendarAttendee> {
-    let source = if request.organizer.trim().is_empty() { fallback } else { &request.organizer };
+fn organizer(request: &MeetingRequest) -> Result<CalendarAttendee> {
+    // A forwarded request's sender is not necessarily the original organizer.
+    let source = &request.organizer;
     let email = mailbox(source);
     if !valid_email(&email) {
-        return Err(protocol("meeting request organizer is invalid"));
+        return Err(protocol("meeting request organizer is missing or invalid").remediation(
+            "Use the matching calendar event_ref, or ask the organizer for a direct invitation",
+        ));
     }
     let name = source
         .rfind('<')

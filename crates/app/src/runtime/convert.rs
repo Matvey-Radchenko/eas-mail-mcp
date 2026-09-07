@@ -80,7 +80,8 @@ pub(super) fn calendar_event(
         can_update,
         can_delete: can_update && event_type == CalendarEventType::Personal,
         can_cancel: can_update && event_type == CalendarEventType::OrganizerMeeting,
-        can_respond: writable && event_type == CalendarEventType::AttendeeMeeting,
+        can_respond: event_type == CalendarEventType::AttendeeMeeting
+            && super::calendar_series::response::can_respond(event),
         untrusted_external_content: true,
     }
 }
@@ -195,11 +196,8 @@ fn calendar_mail(fields: &eas_mail_protocol::MailFields) -> (Option<CalendarMail
             2 | 3 => CalendarMailKind::Update,
             _ => CalendarMailKind::Other,
         };
-        let can_respond = meeting.is_some_and(|value| {
-            matches!(value.message_type, 1 | 2)
-                && value.instance_type == 0
-                && value.response_requested
-        });
+        let can_respond =
+            super::calendar_response_prepare::prepare(fields, chrono::DateTime::UNIX_EPOCH).is_ok();
         (Some(kind), can_respond)
     } else if class.contains(".meeting.canceled") {
         (Some(CalendarMailKind::Cancellation), false)

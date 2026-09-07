@@ -124,9 +124,10 @@ impl Runtime {
         if input.scope.is_some_and(|scope| scope != crate::model::CalendarScope::Series) {
             return Err(validation("occurrence responses require a calendar occurrence reference"));
         }
-        let prepared = calendar_response_prepare::prepare(&fetched, self.clock.now())?;
+        let prepared = calendar_response_prepare::prepare(&fetched.fields, self.clock.now())?;
         write_preview::verify(
-            &response_preview(&reference.account_id, &prepared.event, input),
+            &response_preview(&reference.account_id, &prepared.event, input)
+                .field("Organizer", &prepared.organizer.email),
             expected,
         )?;
         let reply_id = step_client_id(&input.idempotency_key, "reply")?;

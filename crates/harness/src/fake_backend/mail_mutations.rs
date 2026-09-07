@@ -15,6 +15,11 @@ impl FakeBackend {
             .cloned()
             .unwrap_or_else(|| mail(&self.account.account_id, source.clone())))
     }
+    /// Installs a deterministic mail pre-image without a client mutation.
+    pub fn put_mail_fixture(&self, mail: BackendMail) -> Result<()> {
+        self.store_mail(mail)
+    }
+
     fn store_mail(&self, mail: BackendMail) -> Result<()> {
         self.mail_items
             .lock()

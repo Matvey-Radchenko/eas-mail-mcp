@@ -79,8 +79,24 @@ Use an `event_ref` returned by agenda for `occurrence` or `following`. It includ
 the original start, even after an instance moves. Search and create return a
 master reference; `calendar_get` resolves either kind in Rust. Do not decode or
 edit references. A deleted instance or a changed pattern can return `SYNC_STALE`.
-Recurring responses use Calendar references; the old mail-invitation reference
-path remains for one-off invitations.
+Calendar references support series and occurrence responses. The next patch also
+accepts mail references for whole-series invitations (`InstanceType=1`), including
+forwarded invitations, as well as one-off requests. A mail request for one
+occurrence needs its matching agenda `event_ref` and `scope=occurrence`; it must
+never silently become a response to the whole series.
+
+Reply eligibility is independent of full-item edit eligibility. Unsupported
+online-meeting metadata or a truncated body can block an edit while leaving a
+reply possible. MeetingResponse changes attendance; it does not rewrite event
+properties. The reply notification carries the original UID, the responding
+account, the original organizer, and (only for an occurrence) its original
+RECURRENCE-ID. It does not echo sibling exceptions or truncated content.
+
+A forwarded message's sender is not used as an organizer fallback. If organizer
+metadata is missing, use the matching calendar reference or request a direct
+invitation. Explicit Exchange rejections report the MeetingResponse status and
+recovery guidance. An acknowledged response followed by a failed notification
+is partial; an ambiguous outcome must not be retried with a new UUID.
 
 An occurrence patch contains only explicitly changed fields. Unchanged fields
 continue to inherit the series; existing overrides retain their meaning. A
@@ -127,3 +143,7 @@ Protocol references: [GAL Search](https://learn.microsoft.com/en-us/openspecs/ex
 [recurrence constraints](https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-ascal/dabc38cf-7f14-4f51-8c88-717dace42de5),
 [month-end differences](https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-oxcical/4f8a95e3-542a-4c8b-88b3-1b00355286e7),
 and [Exchange's unsupported THISANDFUTURE parameter](https://learn.microsoft.com/en-us/openspecs/exchange_standards/ms-stanxical/7ae77b54-ab32-406f-b6f8-4101a2a729c2).
+
+Reply behavior follows [RFC 5546 section 3.2.3](https://www.rfc-editor.org/rfc/rfc5546.html#section-3.2.3),
+[Outlook reply import rules](https://learn.microsoft.com/en-us/openspecs/exchange_standards/ms-stanoical/fa3c5473-b0d3-4a9a-aec0-3d42cd80a1ec),
+and [MeetingResponse statuses](https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-ascmd/de30ed24-3447-412c-a1ff-5a65fe34b393).

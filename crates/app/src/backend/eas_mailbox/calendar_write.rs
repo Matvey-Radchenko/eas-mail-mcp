@@ -134,7 +134,7 @@ impl EasMailbox {
             result
         }
         .map_err(self.scoped_error())?;
-        require_status(result.status, "MeetingResponse")?;
+        super::meeting_response::require_status(result.status)?;
         Ok(result.calendar_id)
     }
 

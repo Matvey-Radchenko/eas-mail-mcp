@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Accept forwarded recurring invitations through mail references; keep
+  occurrence responses scoped to Calendar occurrence references.
+- Separate attendance replies from full-item Calendar edits so unsupported
+  metadata does not incorrectly disable responses. Preserve the original
+  organizer and occurrence identity without echoing sibling exceptions.
+- Explain Exchange MeetingResponse rejections and missing organizer metadata.
+
 ## 1.0.0 — unreleased
 
 ### Added
