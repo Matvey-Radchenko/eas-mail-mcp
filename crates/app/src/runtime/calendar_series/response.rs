@@ -14,7 +14,9 @@ pub(in crate::runtime) fn prepare(
     if input.scope == Some(CalendarScope::Following) {
         return Err(invalid("respond supports only series or occurrence scope"));
     }
-    let master = calendar_prepare::existing(source, now)?;
+    // MeetingResponse changes attendance only; it never rewrites ApplicationData.
+    // Unknown body/online-meeting fields must still block edits, but not a reply.
+    let master = calendar_prepare::from_fields(source, now, super::read_properties(source)?)?;
     let scope = super::edit::resolve_scope(input.scope, source, &master.mutation.application)?;
     if scope == CalendarScope::Occurrence {
         prepared(selected(&master.mutation.application, super::original_time(source)?)?)
@@ -22,6 +24,15 @@ pub(in crate::runtime) fn prepare(
         source.occurrence_start = None;
         Ok(master)
     }
+}
+
+pub(in crate::runtime) fn can_respond(source: &BackendEvent) -> bool {
+    super::read_properties(source)
+        .and_then(|properties| {
+            calendar_prepare::from_fields(source, DateTime::UNIX_EPOCH, properties)
+        })
+        .is_ok()
+        && crate::runtime::calendar_write_support::organizer(source).is_ok()
 }
 
 pub(in crate::runtime) fn for_read(
@@ -33,7 +44,7 @@ pub(in crate::runtime) fn for_read(
         return Ok(source);
     };
     let master = calendar_prepare::from_fields(&source, now, super::read_properties(&source)?)?;
-    let event = selected(&master.mutation.application, original)?;
+    let event = super::occurrence::selected_for_read(&master.mutation.application, original)?;
     let mut output = super::edit::projected(&source, &event);
     output.occurrence_start = Some(original);
     output.fields.recurrence = source.fields.recurrence;

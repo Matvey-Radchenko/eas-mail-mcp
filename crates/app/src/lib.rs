@@ -21,8 +21,11 @@ mod sanitize;
 mod write_lock;
 
 pub use config::{AccountConfig, AppConfig, Paths, load_config, save_config};
-pub use error::{AppError, ErrorCode, ErrorEnvelope, Result};
-pub use journal::{JournalBegin, JournalRecord, OperationJournal, OperationStatus, SqliteJournal};
+pub use error::{AppError, ErrorCode, ErrorContext, ErrorEnvelope, Result};
+pub use journal::{
+    JournalBegin, JournalEntry, JournalFilter, JournalRecord, MailResultLocator, OperationJournal,
+    OperationStatus, SqliteJournal,
+};
 pub use keychain::{
     AccountSecret, KeychainStore, MemorySecretStore, SecretBundle, SecretStore, StoredPolicy,
 };

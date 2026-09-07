@@ -107,7 +107,7 @@ impl EasMailbox {
             for (request, response) in responses {
                 match response {
                     Ok(page) => {
-                        if page.sync_key.is_empty() {
+                        if page.sync_key.is_empty() || page.sync_key == "0" {
                             return Err(AppError::new(
                                 ErrorCode::ProtocolError,
                                 "Exchange returned an empty collection SyncKey",
@@ -121,6 +121,7 @@ impl EasMailbox {
                             .get_mut(&request.folder_id)
                             .ok_or_else(state_error)?;
                         apply_page(collection, page)?;
+                        collection.sync_complete = !needs_next;
                         if needs_next {
                             next.push((request.folder_id, request.kind));
                         }
@@ -183,12 +184,13 @@ fn prepare_requests(
 ) -> Result<Vec<SyncRequest>> {
     let mut requests = Vec::with_capacity(pending.len());
     for (folder_id, kind) in pending {
-        let sync_key = state
+        let collection = state
             .collections
             .entry(folder_id.clone())
-            .or_insert_with(|| CollectionState::new(kind))
-            .sync_key
-            .clone();
+            .or_insert_with(|| CollectionState::new(kind));
+        // A cancelled or failed page must never leave a write-ready collection.
+        collection.sync_complete = false;
+        let sync_key = collection.sync_key.clone();
         let (filter, preview_size) = effective_sync_options(state, kind)?;
         requests.push(SyncRequest {
             folder_id,
@@ -235,6 +237,10 @@ fn patch_mail(target: &mut MailFields, patch: MailFields) {
     apply(&mut target.attachments, patch.attachments);
     apply(&mut target.message_class, patch.message_class);
     apply(&mut target.meeting_request, patch.meeting_request);
+    apply(&mut target.conversation_id, patch.conversation_id);
+    apply(&mut target.conversation_index, patch.conversation_index);
+    apply(&mut target.flag, patch.flag);
+    apply(&mut target.categories, patch.categories);
 }
 
 fn apply<T>(target: &mut Patch<T>, patch: Patch<T>) {

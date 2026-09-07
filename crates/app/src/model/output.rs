@@ -1,17 +1,29 @@
 use crate::ErrorEnvelope;
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Account-scoped warning returned alongside partial results.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Warning {
-    /// Account that failed while others succeeded.
+    /// Affected account; empty for a historic operation warning identified by its UUID.
     pub account_id: String,
     /// Stable safe code.
     pub code: String,
     /// Safe warning text.
     pub message: String,
+    /// Whether a later retry of the failed read can be useful.
+    #[serde(default)]
+    pub retryable: bool,
+    /// Safe recovery instructions for this account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remediation: Option<String>,
+    /// Operation UUID associated with this warning, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    /// Server-advertised delay for a safe retry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<u64>,
 }
 
 /// Uniform structured MCP response.
@@ -130,6 +142,10 @@ pub struct MailSummary {
     pub is_read: bool,
     /// Whether attachments are present.
     pub has_attachments: bool,
+    /// Flag state when Exchange supplied recognized metadata; null means unknown.
+    pub flag: Option<super::MailFlagState>,
+    /// Category set when Exchange supplied metadata; null means unknown.
+    pub categories: Option<Vec<String>>,
     /// Meeting request, update, cancellation, response, or other Calendar mail classification.
     pub calendar_message: Option<CalendarMailKind>,
     /// Whether this mail reference can be passed to `calendar_respond`.
@@ -161,6 +177,10 @@ pub struct MailPage {
     pub items: Vec<MailSummary>,
     /// Cursor for the same immutable snapshot.
     pub next_cursor: Option<String>,
+    /// Whether the search candidate set or required metadata was incomplete.
+    pub results_truncated: bool,
+    /// Per-account search coverage; empty for collection listing.
+    pub coverage: Vec<super::MailSearchCoverage>,
 }
 
 /// On-demand full message body.

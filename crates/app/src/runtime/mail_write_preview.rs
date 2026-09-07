@@ -1,6 +1,7 @@
 use super::Runtime;
 use super::convert::{boolean, string};
 use super::outgoing::{forward_message, reply_message, validate_message};
+use super::outgoing_attachments;
 use super::write_preview::{PreparedWrite, WritePreview};
 use super::writes::existing_result;
 use crate::Result;
@@ -30,10 +31,13 @@ impl Runtime {
         &self,
         input: &MailSendInput,
     ) -> Result<PreparedWrite<OperationResult>> {
-        if let Some(record) = self.replay_write("mail_send", &input.idempotency_key, input)? {
+        let attachments = outgoing_attachments::prepare(&input.attachments)?;
+        let payload = outgoing_attachments::payload(input, &attachments);
+        if let Some(record) = self.replay_write("mail_send", &input.idempotency_key, &payload)? {
             return Ok(PreparedWrite::Replay(existing_result(record)));
         }
-        let message = send_message(input);
+        let mut message = send_message(input);
+        message.attachments = attachments;
         validate_message(&message)?;
         self.require_write(&input.account_id)?;
         Ok(PreparedWrite::Ready(message_preview("mail_send", &input.account_id, &message)))
@@ -43,7 +47,9 @@ impl Runtime {
         &self,
         input: &MailReplyInput,
     ) -> Result<PreparedWrite<OperationResult>> {
-        if let Some(record) = self.replay_write("mail_reply", &input.idempotency_key, input)? {
+        let attachments = outgoing_attachments::prepare(&input.attachments)?;
+        let payload = outgoing_attachments::payload(input, &attachments);
+        if let Some(record) = self.replay_write("mail_reply", &input.idempotency_key, &payload)? {
             return Ok(PreparedWrite::Replay(existing_result(record)));
         }
         let reference = self.references.mail(&input.mail_ref)?;
@@ -52,7 +58,8 @@ impl Runtime {
             &reference.account_id,
             backend.fetch_mail(&reference.source, 1).await,
         )?;
-        let message = reply_message(&mail, &backend.account().email, input)?;
+        let mut message = reply_message(&mail, &backend.account().email, input)?;
+        message.attachments = attachments;
         validate_message(&message)?;
         Ok(PreparedWrite::Ready(message_preview("mail_reply", &reference.account_id, &message)))
     }
@@ -61,7 +68,9 @@ impl Runtime {
         &self,
         input: &MailForwardInput,
     ) -> Result<PreparedWrite<OperationResult>> {
-        if let Some(record) = self.replay_write("mail_forward", &input.idempotency_key, input)? {
+        let attachments = outgoing_attachments::prepare(&input.attachments)?;
+        let payload = outgoing_attachments::payload(input, &attachments);
+        if let Some(record) = self.replay_write("mail_forward", &input.idempotency_key, &payload)? {
             return Ok(PreparedWrite::Replay(existing_result(record)));
         }
         let reference = self.references.mail(&input.mail_ref)?;
@@ -70,7 +79,8 @@ impl Runtime {
             &reference.account_id,
             backend.fetch_mail(&reference.source, 1).await,
         )?;
-        let message = forward(&mail, input);
+        let mut message = forward(&mail, input);
+        message.attachments = attachments;
         validate_message(&message)?;
         Ok(PreparedWrite::Ready(message_preview("mail_forward", &reference.account_id, &message)))
     }
@@ -91,6 +101,7 @@ pub(super) fn send_message(input: &MailSendInput) -> OutgoingMail {
         bcc: input.bcc.clone(),
         subject: input.subject.clone(),
         body: input.body.clone(),
+        attachments: Vec::new(),
     }
 }
 
@@ -107,10 +118,14 @@ pub(super) fn message_preview(
     account_id: &str,
     message: &OutgoingMail,
 ) -> WritePreview {
-    WritePreview::new(operation, account_id.to_owned())
+    let mut preview = WritePreview::new(operation, account_id.to_owned())
         .field("To", message.to.join(", "))
         .field("Cc", message.cc.join(", "))
         .field("Bcc", message.bcc.join(", "))
         .field("Subject", &message.subject)
-        .field("Body", &message.body)
+        .field("Body", &message.body);
+    for attachment in &message.attachments {
+        preview = preview.field("Attachment", outgoing_attachments::digest(attachment).preview());
+    }
+    preview
 }

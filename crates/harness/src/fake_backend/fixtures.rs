@@ -8,6 +8,20 @@ use eas_mail_protocol::{
 pub(super) fn folders() -> Vec<Folder> {
     vec![
         Folder {
+            server_id: "trash".into(),
+            parent_id: "0".into(),
+            display_name: "Trash".into(),
+            folder_type: 4,
+            kind: Some(CollectionKind::Mail),
+        },
+        Folder {
+            server_id: "archive".into(),
+            parent_id: "0".into(),
+            display_name: "Archive".into(),
+            folder_type: 12,
+            kind: Some(CollectionKind::Mail),
+        },
+        Folder {
             server_id: "inbox".into(),
             parent_id: "0".into(),
             display_name: "Inbox".into(),

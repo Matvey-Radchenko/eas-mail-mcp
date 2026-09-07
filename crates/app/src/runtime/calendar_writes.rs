@@ -123,6 +123,7 @@ impl Runtime {
             "",
         )?;
         let _guard = self.write_locks.acquire(&input.account_id).await?;
+        let backend = self.require_write(&input.account_id)?;
         write_preview::verify(
             &event_preview("calendar_create", &input.account_id, &prepared),
             expected,
@@ -138,14 +139,18 @@ impl Runtime {
                 Err(error) => return self.calendar_failure(&begin.record, 0, error, None),
             };
         let mut steps = STEP_ITEM;
-        self.journal.checkpoint(&begin.record.operation_id, steps)?;
-        let event_ref = self.references.insert_event(created)?;
+        self.checkpoint_mutation(&begin.record, steps)?;
+        let event_ref = Self::journal_after_mutation(
+            self.references.insert_event(created),
+            &begin.record.account_id,
+            &begin.record.operation_id,
+        )?;
         if let Some(mime) = request_mime {
             if let Err(error) = backend.send_calendar_message(&request_id, mime).await {
                 return self.calendar_failure(&begin.record, steps, error, Some(event_ref));
             }
             steps |= STEP_NOTIFY_CURRENT;
-            self.journal.checkpoint(&begin.record.operation_id, steps)?;
+            self.checkpoint_mutation(&begin.record, steps)?;
         }
         self.calendar_success(&begin.record, steps, Some(event_ref))
     }
@@ -184,7 +189,11 @@ impl Runtime {
         steps: u32,
         event_ref: Option<String>,
     ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
-        self.journal.finish(&record.operation_id, OperationStatus::Succeeded, steps)?;
+        Self::journal_after_mutation(
+            self.journal.finish(&record.operation_id, OperationStatus::Succeeded, steps),
+            &record.account_id,
+            &record.operation_id,
+        )?;
         Ok((
             calendar_write_result::result(
                 &record.operation_id,
@@ -205,7 +214,11 @@ impl Runtime {
         event_ref: Option<String>,
     ) -> Result<(CalendarOperationResult, Vec<Warning>)> {
         if error.envelope.code == ErrorCode::RemoteWipe {
-            self.purge_account(&record.account_id)?;
+            Self::journal_after_mutation(
+                self.purge_account(&record.account_id),
+                &record.account_id,
+                &record.operation_id,
+            )?;
             return Err(error.operation(&record.operation_id));
         }
         let (journal_status, result_status, message) = if error.envelope.code
@@ -229,7 +242,11 @@ impl Runtime {
                 "Some Calendar steps succeeded; do not retry with a new UUID",
             )
         };
-        self.journal.finish(&record.operation_id, journal_status, steps)?;
+        Self::journal_after_mutation(
+            self.journal.finish(&record.operation_id, journal_status, steps),
+            &record.account_id,
+            &record.operation_id,
+        )?;
         Ok((
             calendar_write_result::result(
                 &record.operation_id,

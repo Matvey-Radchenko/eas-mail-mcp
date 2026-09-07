@@ -1,3 +1,5 @@
+mod reply;
+
 use chrono::NaiveDate;
 use eas_mail_protocol::{CalendarApplication, CalendarAttendee};
 use icalendar::{
@@ -39,7 +41,12 @@ pub(super) fn build(
     }
     validate_header_text(&item.subject)?;
     let method_name = method_name(method);
-    let calendar = calendar(sender, recipients, item, all_day_dates, method)?;
+    let calendar = match method {
+        CalendarMessageMethod::Reply(response) => {
+            reply::calendar(sender, recipients, item, response, comment)?
+        }
+        _ => calendar(sender, recipients, item, all_day_dates, method)?,
+    };
     let mut encoded_calendar = Vec::new();
     base64_encode_mime(calendar.as_bytes(), &mut encoded_calendar, false).map_err(|_| {
         AppError::new(ErrorCode::ProtocolError, "cannot encode calendar MIME message")
@@ -83,6 +90,9 @@ fn calendar(
     all_day_dates: Option<(NaiveDate, NaiveDate)>,
     method: CalendarMessageMethod,
 ) -> Result<String> {
+    if let CalendarMessageMethod::Reply(response) = method {
+        return reply::calendar(sender, recipients, item, response, "");
+    }
     let mut calendar = Calendar::empty();
     calendar
         .append_property(Property::new("PRODID", "-//EAS Mail MCP//EN"))

@@ -1,3 +1,4 @@
+pub(super) mod ranked;
 mod slots;
 mod time;
 
@@ -10,10 +11,9 @@ use eas_mail_protocol::{
 use self::time::format_in_zone;
 pub(super) use self::time::{SchedulePlan, UtcInterval};
 use crate::model::{
-    CalendarAvailabilityData, CalendarAvailabilityInterval, CalendarFreeWindow,
-    CalendarParticipantSchedule, CalendarRecipientCandidate, CalendarSlotParticipant,
-    CalendarSlotsData, FreeBusyState, ParticipantAvailabilityState, ParticipantResolutionState,
-    WorkingHoursInput,
+    CalendarAvailabilityData, CalendarAvailabilityInterval, CalendarParticipantSchedule,
+    CalendarRecipientCandidate, FreeBusyState, ParticipantAvailabilityState,
+    ParticipantResolutionState, WorkingHoursInput,
 };
 use crate::{AppError, ErrorCode, Result};
 
@@ -27,19 +27,12 @@ pub(super) struct AvailabilityPage {
 
 pub(super) struct PreparedAvailability {
     pub(super) data: CalendarAvailabilityData,
-    records: Vec<ParticipantRecord>,
 }
 
 #[derive(Clone)]
 struct StatusInterval {
     range: UtcInterval,
     status: FreeBusyState,
-}
-
-struct ParticipantRecord {
-    resolution: ParticipantResolutionState,
-    availability: ParticipantAvailabilityState,
-    intervals: Vec<StatusInterval>,
 }
 
 struct Accumulator {
@@ -75,7 +68,7 @@ pub(super) fn prepare(
     for page in pages {
         apply_page(&mut accumulators, requested, plan, page)?;
     }
-    let (participants, records) = finalize(accumulators, plan)?;
+    let participants = finalize(accumulators, plan)?;
     let resolution_complete =
         participants.iter().all(|value| value.resolution == ParticipantResolutionState::Resolved);
     let data = CalendarAvailabilityData {
@@ -88,56 +81,7 @@ pub(super) fn prepare(
         participants,
     };
     ensure_bounded(&data)?;
-    Ok(PreparedAvailability { data, records })
-}
-
-pub(super) fn find_slots(
-    prepared: PreparedAvailability,
-    duration_minutes: u16,
-    allow_tentative: bool,
-    limit: usize,
-) -> Result<CalendarSlotsData> {
-    validate_slot_options(duration_minutes, limit)?;
-    let all_available = prepared.records.iter().all(|value| {
-        value.resolution == ParticipantResolutionState::Resolved
-            && value.availability == ParticipantAvailabilityState::Available
-    });
-    let windows = if prepared.data.resolution_complete && all_available {
-        common_windows(
-            &prepared.records,
-            duration_minutes,
-            allow_tentative,
-            limit,
-            prepared.data.time_zone.parse().map_err(|_| state_error())?,
-        )
-    } else {
-        Vec::new()
-    };
-    let participants = prepared
-        .data
-        .participants
-        .iter()
-        .zip(&prepared.records)
-        .map(|(summary, record)| CalendarSlotParticipant {
-            input: summary.input.clone(),
-            resolution: summary.resolution,
-            display_name: summary.display_name.clone(),
-            email: summary.email.clone(),
-            availability: summary.availability,
-            candidates: summary.candidates.clone(),
-            has_no_data: record.intervals.iter().any(|value| value.status == FreeBusyState::NoData),
-            untrusted_external_content: true,
-        })
-        .collect();
-    Ok(CalendarSlotsData {
-        account_id: prepared.data.account_id,
-        time_zone: prepared.data.time_zone,
-        duration_minutes,
-        precision_minutes: PRECISION_MINUTES,
-        resolution_complete: prepared.data.resolution_complete,
-        participants,
-        windows,
-    })
+    Ok(PreparedAvailability { data })
 }
 
 impl Accumulator {
@@ -261,9 +205,8 @@ fn merge_candidates(target: &mut Vec<CalendarRecipientCandidate>, values: Vec<Re
 fn finalize(
     accumulators: Vec<Accumulator>,
     plan: &SchedulePlan,
-) -> Result<(Vec<CalendarParticipantSchedule>, Vec<ParticipantRecord>)> {
+) -> Result<Vec<CalendarParticipantSchedule>> {
     let mut participants = Vec::new();
-    let mut records = Vec::new();
     for mut value in accumulators {
         let resolution = value.resolution.ok_or_else(state_error)?;
         let availability = value.availability.unwrap_or(ParticipantAvailabilityState::Missing);
@@ -288,9 +231,8 @@ fn finalize(
             intervals,
             untrusted_external_content: true,
         });
-        records.push(ParticipantRecord { resolution, availability, intervals: value.intervals });
     }
-    Ok((participants, records))
+    Ok(participants)
 }
 
 fn merge_status_intervals(mut values: Vec<StatusInterval>) -> Result<Vec<StatusInterval>> {
@@ -313,43 +255,6 @@ fn merge_status_intervals(mut values: Vec<StatusInterval>) -> Result<Vec<StatusI
         }
     }
     Ok(output)
-}
-
-fn common_windows(
-    records: &[ParticipantRecord],
-    duration_minutes: u16,
-    allow_tentative: bool,
-    limit: usize,
-    time_zone: chrono_tz::Tz,
-) -> Vec<CalendarFreeWindow> {
-    let groups = records
-        .iter()
-        .map(|record| {
-            slots::merge_intervals(
-                record
-                    .intervals
-                    .iter()
-                    .filter(|value| {
-                        value.status == FreeBusyState::Free
-                            || (allow_tentative && value.status == FreeBusyState::Tentative)
-                    })
-                    .map(|value| value.range)
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let common = slots::intersect_all(&groups);
-    slots::fitting(common, duration_minutes, limit)
-        .into_iter()
-        .map(|value| CalendarFreeWindow {
-            window_start: format_in_zone(value.start, time_zone),
-            window_end: format_in_zone(value.end, time_zone),
-            latest_start: format_in_zone(
-                value.end - Duration::minutes(i64::from(duration_minutes)),
-                time_zone,
-            ),
-        })
-        .collect()
 }
 
 fn validate_participants(participants: &[String]) -> Result<()> {

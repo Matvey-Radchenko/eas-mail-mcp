@@ -14,9 +14,29 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
+  verify-ci:
+    name: Verify accepted commit
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout accepted source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Require successful CI for this exact SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/require-ci.mjs
+
   build:
+    needs: verify-ci
     strategy:
       fail-fast: false
       matrix:
@@ -64,6 +84,7 @@ jobs:
     environment: npm
     permissions:
       contents: read
+      actions: read
       id-token: write
     steps:
       - name: Checkout source
@@ -83,6 +104,10 @@ jobs:
           package-manager-cache: false
       - name: Install npm with staged publishing support
         run: npm install --global 'npm@^11.15.0'
+      - name: Recheck exact accepted SHA immediately before staging
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/require-ci.mjs
       - name: Validate release tag
         env:
           NPM_TAG: ${{ inputs.npm_tag }}

@@ -5,15 +5,14 @@ use eas_mail_mcp::backend::{AccountBackend as _, MailSource};
 use eas_mail_mcp::{ErrorCode, SecretStore as _};
 use eas_mail_protocol::protocol::{
     ComposeSource, build_attachment_fetch, build_initial_provision, build_item_fetch,
-    build_mark_read, build_mime_message, build_policy_ack, build_search, build_send, build_smart,
-    build_wipe_ack,
+    build_mime_message, build_policy_ack, build_search, build_send, build_smart, build_wipe_ack,
 };
-use eas_mail_protocol::{CollectionKind, Command, RequestSafety};
+use eas_mail_protocol::{Command, RequestSafety};
 
 use support::{
-    attachment_response, call, compose_response, default_policy, folder_response, item_response,
-    mail_change, mailbox, mailbox_with_store, mutation, mutation_response, options, outgoing,
-    policy, provision_response, read, search_response, sync_response, wipe_response,
+    attachment_response, call, compose_response, default_policy, item_response, mailbox,
+    mailbox_with_store, mutation, options, outgoing, policy, provision_response, read,
+    search_response, wipe_response,
 };
 
 #[tokio::test]
@@ -99,7 +98,7 @@ async fn attachment_policy_blocks_disabled_and_oversized_payloads() -> anyhow::R
 }
 
 #[tokio::test]
-async fn mark_read_send_reply_and_forward_use_mutation_requests() -> anyhow::Result<()> {
+async fn send_reply_and_forward_use_mutation_requests() -> anyhow::Result<()> {
     let message = outgoing();
     let mime = build_mime_message(
         "user@example.invalid",
@@ -113,30 +112,9 @@ async fn mark_read_send_reply_and_forward_use_mutation_requests() -> anyhow::Res
     let calls = vec![
         options(),
         read(
-            Command::FolderSync,
-            eas_mail_protocol::protocol::build_folder_sync("0")?,
-            folder_response("1", true)?,
-        ),
-        read(
-            Command::Sync,
-            eas_mail_protocol::protocol::build_sync("inbox", "0", CollectionKind::Mail, 5, 500)?,
-            sync_response("mail-1", 1, false, Vec::new())?,
-        ),
-        read(
-            Command::Sync,
-            eas_mail_protocol::protocol::build_sync(
-                "inbox",
-                "mail-1",
-                CollectionKind::Mail,
-                5,
-                500,
-            )?,
-            sync_response("mail-2", 1, false, vec![mail_change("Add", "message-1", Some("Mail"))])?,
-        ),
-        mutation(
-            Command::Sync,
-            build_mark_read("inbox", "message-1", "mail-2", true)?,
-            mutation_response("mail-3", 1)?,
+            Command::ItemOperations,
+            build_item_fetch(Some("long-1"), None, None, 1)?,
+            item_response()?,
         ),
         mutation(Command::SendMail, build_send("send-id", mime.clone())?, Vec::new()),
         mutation(
@@ -147,12 +125,12 @@ async fn mark_read_send_reply_and_forward_use_mutation_requests() -> anyhow::Res
                 ComposeSource::Item { folder_id: "inbox", item_id: "message-1" },
                 mime.clone(),
             )?,
-            compose_response(1)?,
+            Vec::new(),
         ),
         mutation(
             Command::SmartForward,
             build_smart(true, "forward-id", ComposeSource::LongId("long-1"), mime)?,
-            compose_response(1)?,
+            Vec::new(),
         ),
     ];
     let (mailbox, transport) = mailbox(calls, default_policy())?;
@@ -161,9 +139,8 @@ async fn mark_read_send_reply_and_forward_use_mutation_requests() -> anyhow::Res
             .mark_read(&MailSource::LongId("long-1".into()), true)
             .await
             .map_err(|error| error.envelope.code),
-        Err(ErrorCode::ValidationFailed)
+        Err(ErrorCode::FeatureUnavailable)
     );
-    mailbox.mark_read(&source, true).await?;
     mailbox.send("send-id", &message).await?;
     mailbox.reply("reply-id", &source, &message).await?;
     mailbox.forward("forward-id", &MailSource::LongId("long-1".into()), &message).await?;
@@ -184,7 +161,7 @@ async fn rejected_mutation_returns_protocol_error() -> anyhow::Result<()> {
     )?;
     let calls = vec![
         options(),
-        mutation(Command::SendMail, build_send("send-id", mime)?, compose_response(9)?),
+        mutation(Command::SendMail, build_send("send-id", mime)?, compose_response(122)?),
     ];
     let (mailbox, transport) = mailbox(calls, default_policy())?;
     assert_eq!(

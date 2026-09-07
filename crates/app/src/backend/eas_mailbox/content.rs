@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use eas_mail_protocol::{CollectionKind, EasError, MailFields, Patch};
 
-use super::super::{BackendMail, MailSource};
+use super::super::{BackendMail, BackendMailSearchPage, MailSource};
 use super::session::{EasMailbox, SessionState};
 use crate::{AppError, ErrorCode, Result};
 
@@ -45,13 +45,52 @@ impl EasMailbox {
         Ok(result
             .map_err(self.scoped_error())?
             .into_iter()
-            .map(|mail| BackendMail {
-                account_id: self.account.account_id.clone(),
-                folder_id: String::new(),
-                source: MailSource::LongId(mail.long_id),
-                fields: mail.fields,
-            })
+            .map(|mail| search_mail(&self.account.account_id, mail))
             .collect())
+    }
+
+    pub(super) async fn search_page(
+        &self,
+        query: &eas_mail_protocol::MailSearchQuery,
+        start: usize,
+        limit: usize,
+    ) -> Result<BackendMailSearchPage> {
+        let mut state = self.state.lock().await;
+        self.ensure_ready(&mut state).await?;
+        let mut result = self
+            .client
+            .search_mail_page(
+                state.policy_key,
+                query,
+                start,
+                limit,
+                policy(&state)?.body_limit.min(500),
+            )
+            .await;
+        if matches!(result, Err(EasError::PolicyRefreshRequired)) {
+            self.refresh_policy(&mut state).await?;
+            result = self
+                .client
+                .search_mail_page(
+                    state.policy_key,
+                    query,
+                    start,
+                    limit,
+                    policy(&state)?.body_limit.min(500),
+                )
+                .await;
+        }
+        let page = result.map_err(self.scoped_error())?;
+        Ok(BackendMailSearchPage {
+            server_truncated: page.server_truncated,
+            items: page
+                .items
+                .into_iter()
+                .map(|mail| search_mail(&self.account.account_id, mail))
+                .collect(),
+            total: page.total,
+            range: page.range,
+        })
     }
 
     pub(super) async fn fetch(
@@ -75,11 +114,19 @@ impl EasMailbox {
                 .fetch_item(state.policy_key, long_id, folder_id, server_id, body_limit)
                 .await;
         }
+        let result = result.map_err(self.scoped_error())?;
+        let folder_id = result.collection_id.as_deref().or(folder_id).unwrap_or_default();
+        let source = match (result.collection_id.as_ref(), result.server_id.as_ref()) {
+            (Some(folder), Some(server)) => {
+                MailSource::Item { folder_id: folder.clone(), server_id: server.clone() }
+            }
+            _ => source.clone(),
+        };
         Ok(BackendMail {
             account_id: self.account.account_id.clone(),
-            folder_id: folder_id.unwrap_or_default().to_owned(),
-            source: source.clone(),
-            fields: result.map_err(self.scoped_error())?.fields,
+            folder_id: folder_id.to_owned(),
+            source,
+            fields: result.fields,
         })
     }
 
@@ -114,6 +161,21 @@ impl EasMailbox {
             .account(&self.account.account_id));
         }
         Ok(policy.max_attachment_bytes)
+    }
+}
+
+fn search_mail(account_id: &str, mail: eas_mail_protocol::SearchMail) -> BackendMail {
+    let source = match (&mail.collection_id, &mail.server_id) {
+        (Some(folder), Some(server)) => {
+            MailSource::Item { folder_id: folder.clone(), server_id: server.clone() }
+        }
+        _ => MailSource::LongId(mail.long_id),
+    };
+    BackendMail {
+        account_id: account_id.into(),
+        folder_id: mail.collection_id.unwrap_or_default(),
+        source,
+        fields: mail.fields,
     }
 }
 

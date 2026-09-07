@@ -28,7 +28,7 @@ impl Runtime {
         &self,
         input: CalendarFindSlotsInput,
     ) -> ApiResponse<CalendarSlotsData> {
-        Self::response(self.calendar_find_slots_result(input).await)
+        Self::response(self.ranked_slots_result(input).await)
     }
 
     /// Searches own-calendar text or returns a compact bounded agenda.
@@ -58,30 +58,6 @@ impl Runtime {
         let backend = self.calendar_backend(input.account_id.as_deref(), &input.participants)?;
         let prepared = self.request_availability(backend, &input.participants, &plan).await?;
         Ok((prepared.data, Vec::new()))
-    }
-
-    async fn calendar_find_slots_result(
-        &self,
-        input: CalendarFindSlotsInput,
-    ) -> Result<(CalendarSlotsData, Vec<crate::Warning>)> {
-        let result_limit = limit(input.limit.map(u32::from), 20, 50)?;
-        schedule::validate_slot_options(input.duration_minutes, result_limit)?;
-        let plan = schedule::plan(
-            &input.participants,
-            &input.date_from,
-            &input.date_to,
-            &input.time_zone,
-            &input.working_hours,
-        )?;
-        let backend = self.calendar_backend(input.account_id.as_deref(), &input.participants)?;
-        let prepared = self.request_availability(backend, &input.participants, &plan).await?;
-        let data = schedule::find_slots(
-            prepared,
-            input.duration_minutes,
-            input.allow_tentative,
-            result_limit,
-        )?;
-        Ok((data, Vec::new()))
     }
 
     async fn request_availability(
@@ -156,7 +132,7 @@ impl Runtime {
         Ok((calendar_event(input.event_ref, &event, &account_email, body_limit), Vec::new()))
     }
 
-    fn calendar_backend(
+    pub(super) fn calendar_backend(
         &self,
         account_id: Option<&str>,
         participants: &[String],

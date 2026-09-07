@@ -15,6 +15,9 @@ use zeroize::Zeroizing;
 mod checks;
 #[path = "live_harness/support.rs"]
 mod support;
+#[expect(dead_code, reason = "the direct driver has no calendar cleanup branch")]
+#[path = "live_harness/write_outcome.rs"]
+mod write_outcome;
 
 use checks::check_account;
 use support::{Report, confirm};

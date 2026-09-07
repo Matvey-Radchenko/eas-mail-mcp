@@ -47,14 +47,23 @@ daemon.
    ```bash
    eas-mail-mcp account list
    eas-mail-mcp profile list
-   eas-mail-mcp doctor
+   eas-mail-mcp doctor --check
    ```
 
 5. Попросите пользователя перезапустить MCP-клиент. После перезапуска проверьте
-   `accounts_list` и `folders_list`. Не вызывайте mail/calendar tools, если
+   `accounts_status` и `folders_list`. Не вызывайте mail/calendar tools, если
    пользователь просил только проверить подключение.
 
 Повторный `eas-mail-mcp setup` открывает меню добавления и исправления аккаунтов,
 обновления пароля, write-доступа, профилей, клиентов и диагностики. Сетевые ошибки исправляйте
 проверкой нужной сети/VPN; не ослабляйте TLS. `AUTH_REQUIRED` означает проблему
 credentials, а `ACCESS_DENIED` — запрет EAS или отсутствие allowlist.
+
+Для передачи диагностики используйте только отдельный allowlist-отчёт:
+`eas-mail-mcp doctor --check --report ./support-report.json`. Не публикуйте
+обычный вывод `doctor`, профили, конфиги клиентов, backup-файлы или журнал.
+
+После обновления npm-пакета перезапустите клиентов. Перед удалением пакета
+выполните `client unconfigure` для нужных клиентов. При полном удалении учитывайте
+оставшиеся кэш, журнал, общую запись секретов и client backups; порядок описан в
+[пользовательской инструкции](installation.ru.md#отключение-и-удаление).

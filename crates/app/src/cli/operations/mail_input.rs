@@ -7,7 +7,7 @@ use super::mail_args::{
 };
 use crate::model::{
     AttachmentDownloadInput, MailAttachmentsInput, MailForwardInput, MailGetInput, MailListInput,
-    MailReplyInput, MailSearchInput, MailSendInput, MarkReadInput,
+    MailReplyInput, MailSearchInput, MailSendInput, MarkReadInput, OutgoingAttachmentInput,
 };
 use crate::{AppError, ErrorCode, Result};
 
@@ -44,10 +44,18 @@ pub(super) fn list(arguments: MailListArgs) -> Result<PagedInput<MailListInput>>
 }
 
 pub(super) fn search(arguments: MailSearchArgs) -> Result<PagedInput<MailSearchInput>> {
+    let filters = search_filters(arguments.filters);
     let has_flags = arguments.query.is_some()
         || !arguments.accounts.is_empty()
         || arguments.limit.is_some()
-        || arguments.all;
+        || arguments.all
+        || filters.from.is_some()
+        || filters.to.is_some()
+        || filters.received_after.is_some()
+        || filters.received_before.is_some()
+        || filters.is_read.is_some()
+        || filters.has_attachments.is_some()
+        || !filters.folder_ids.is_empty();
     ensure_flag_mode(arguments.source.input.as_ref(), has_flags)?;
     if let Some(path) = arguments.source.input {
         let input: MailSearchInput = read_json(&path)?;
@@ -58,13 +66,47 @@ pub(super) fn search(arguments: MailSearchArgs) -> Result<PagedInput<MailSearchI
     let maximum = total_limit(arguments.limit, arguments.all)?;
     Ok(PagedInput {
         input: MailSearchInput {
-            query: required(arguments.query, "query")?,
+            filters,
+            query: arguments.query.unwrap_or_default(),
             account_ids: selected(arguments.accounts),
             cursor: None,
             limit: page_limit(maximum),
         },
         maximum,
     })
+}
+
+fn search_filters(input: super::mail_args::MailSearchFilterArgs) -> crate::MailSearchFilters {
+    crate::MailSearchFilters {
+        from: input.from,
+        to: input.to,
+        received_after: input.received_after,
+        received_before: input.received_before,
+        is_read: input.is_read,
+        has_attachments: input.has_attachments,
+        folder_ids: input.folders,
+    }
+}
+
+pub(super) fn thread(input: super::mail_args::MailThreadArgs) -> Result<crate::MailGetThreadInput> {
+    ensure_flag_mode(
+        input.source.input.as_ref(),
+        input.mail_ref.is_some()
+            || input.limit.is_some()
+            || input.body_limit.is_some()
+            || input.total_body_limit.is_some(),
+    )?;
+    input.source.input.map_or_else(
+        || {
+            Ok(crate::MailGetThreadInput {
+                mail_ref: required(input.mail_ref, "mail_ref")?,
+                limit: input.limit,
+                body_limit: input.body_limit,
+                total_body_limit: input.total_body_limit,
+            })
+        },
+        |path| read_json(&path),
+    )
 }
 
 pub(super) fn get(arguments: MailGetArgs) -> Result<MailGetInput> {
@@ -129,6 +171,7 @@ pub(super) fn send(arguments: MailSendArgs) -> Result<(MailSendInput, bool)> {
         || !arguments.cc.is_empty()
         || !arguments.bcc.is_empty()
         || arguments.subject.is_some()
+        || !arguments.attachments.is_empty()
         || body_flags(&arguments.content)
         || arguments.control.idempotency_key.is_some();
     ensure_flag_mode(arguments.source.input.as_ref(), has_flags)?;
@@ -142,6 +185,7 @@ pub(super) fn send(arguments: MailSendArgs) -> Result<(MailSendInput, bool)> {
             bcc: arguments.bcc,
             subject: required(arguments.subject, "subject")?,
             body: body(&arguments.content)?,
+            attachments: local_attachments(arguments.attachments)?,
             idempotency_key: idempotency_key(&arguments.control),
         }
     };
@@ -150,6 +194,7 @@ pub(super) fn send(arguments: MailSendArgs) -> Result<(MailSendInput, bool)> {
 
 pub(super) fn reply(arguments: MailReplyArgs) -> Result<(MailReplyInput, bool)> {
     let has_flags = arguments.mail_ref.is_some()
+        || !arguments.attachments.is_empty()
         || body_flags(&arguments.content)
         || arguments.reply_all
         || arguments.control.idempotency_key.is_some();
@@ -160,6 +205,7 @@ pub(super) fn reply(arguments: MailReplyArgs) -> Result<(MailReplyInput, bool)> 
         MailReplyInput {
             mail_ref: required(arguments.mail_ref, "mail_ref")?,
             body: body(&arguments.content)?,
+            attachments: local_attachments(arguments.attachments)?,
             reply_all: arguments.reply_all,
             idempotency_key: idempotency_key(&arguments.control),
         }
@@ -172,6 +218,7 @@ pub(super) fn forward(arguments: MailForwardArgs) -> Result<(MailForwardInput, b
         || !arguments.to.is_empty()
         || !arguments.cc.is_empty()
         || !arguments.bcc.is_empty()
+        || !arguments.attachments.is_empty()
         || body_flags(&arguments.content)
         || arguments.control.idempotency_key.is_some();
     ensure_flag_mode(arguments.source.input.as_ref(), has_flags)?;
@@ -184,6 +231,7 @@ pub(super) fn forward(arguments: MailForwardArgs) -> Result<(MailForwardInput, b
             cc: arguments.cc,
             bcc: arguments.bcc,
             body: body(&arguments.content)?,
+            attachments: local_attachments(arguments.attachments)?,
             idempotency_key: idempotency_key(&arguments.control),
         }
     };
@@ -229,3 +277,22 @@ fn missing(label: &'static str) -> AppError {
         format!("{label} is required unless --input is used"),
     )
 }
+
+fn local_attachments(paths: Vec<std::path::PathBuf>) -> Result<Vec<OutgoingAttachmentInput>> {
+    paths
+        .into_iter()
+        .map(|path| {
+            let path = std::path::absolute(path).map_err(|_| {
+                AppError::new(ErrorCode::ValidationFailed, "cannot resolve attachment path")
+            })?;
+            let path = path.into_os_string().into_string().map_err(|_| {
+                AppError::new(ErrorCode::ValidationFailed, "attachment path must be UTF-8")
+            })?;
+            Ok(OutgoingAttachmentInput { path, filename: None, content_type: None })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[path = "mail_input_tests.rs"]
+mod tests;

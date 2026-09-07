@@ -19,8 +19,9 @@ impl Runtime {
             return Ok((calendar_write_result::existing(record), Vec::new()));
         }
         let reference = self.references.event(input.reference())?;
-        let backend = self.require_write(&reference.account_id)?;
+        self.require_write(&reference.account_id)?;
         let _guard = self.write_locks.acquire(&reference.account_id).await?;
+        let backend = self.require_write(&reference.account_id)?;
         if let Some(record) = self.replay_write(input.name(), input.key(), &input)? {
             return Ok((calendar_write_result::existing(record), Vec::new()));
         }
@@ -103,12 +104,16 @@ impl Runtime {
                 }
             };
             completed |= step.bit;
-            self.journal.checkpoint(&begin.record.operation_id, completed)?;
+            self.checkpoint_mutation(&begin.record, completed)?;
             if step.bit == STEP_NEW_SERIES || completed & STEP_NEW_SERIES == 0 {
                 event_ref = result
                     .map(|mut event| {
                         event.occurrence_start = plan.occurrence_start;
-                        self.references.insert_event(event)
+                        Self::journal_after_mutation(
+                            self.references.insert_event(event),
+                            &begin.record.account_id,
+                            &begin.record.operation_id,
+                        )
                     })
                     .transpose()?;
             }
@@ -118,7 +123,7 @@ impl Runtime {
                 return self.calendar_failure(&begin.record, completed, error, event_ref);
             }
             completed |= bit;
-            self.journal.checkpoint(&begin.record.operation_id, completed)?;
+            self.checkpoint_mutation(&begin.record, completed)?;
         }
         self.calendar_success(&begin.record, completed, event_ref)
     }

@@ -215,3 +215,60 @@ fn series(all_day: bool) -> anyhow::Result<CalendarApplication> {
 fn instant(value: &str) -> anyhow::Result<DateTime<Utc>> {
     Ok(DateTime::parse_from_rfc3339(value)?.with_timezone(&Utc))
 }
+
+#[test]
+fn whole_series_reply_omits_sibling_exceptions_and_unpreservable_content() -> anyhow::Result<()> {
+    let mut item = series(false)?;
+    item.properties.unsupported = true;
+    item.properties.exceptions.push(CalendarException {
+        original_start: instant("2026-03-08T13:00:00Z")?,
+        deleted: false,
+        fields: CalendarFields { body_truncated: Patch::Value(true), ..Default::default() },
+    });
+    let rendered = calendar(
+        "attendee@example.invalid",
+        &item.attendees,
+        &item,
+        None,
+        CalendarMessageMethod::Reply(CalendarResponseChoice::Accept),
+    )?;
+    assert_eq!(rendered.matches("BEGIN:VEVENT").count(), 1);
+    assert!(rendered.contains("PARTSTAT=ACCEPTED"));
+    for omitted in
+        ["RRULE:", "RECURRENCE-ID", "EXDATE", "DESCRIPTION", "DTSTART", "DTEND", "STATUS:"]
+    {
+        assert!(!rendered.contains(omitted), "unexpected property: {omitted}");
+    }
+    Ok(())
+}
+
+#[test]
+fn occurrence_reply_keeps_original_identity_after_move_and_value_type_change() -> anyhow::Result<()>
+{
+    for all_day in [false, true] {
+        let master = series(all_day)?;
+        let original = if all_day {
+            instant("2026-03-08T05:00:00Z")?
+        } else {
+            instant("2026-03-08T13:00:00Z")?
+        };
+        let mut occurrence = calendar_series::selected(&master, original)?;
+        occurrence.starts_at += Duration::hours(2);
+        occurrence.ends_at += Duration::hours(2);
+        occurrence.all_day = !all_day;
+        let rendered = calendar(
+            "attendee@example.invalid",
+            &master.attendees,
+            &occurrence,
+            None,
+            CalendarMessageMethod::Reply(CalendarResponseChoice::Accept),
+        )?;
+        assert!(rendered.contains(if all_day {
+            "RECURRENCE-ID;VALUE=DATE:20260308"
+        } else {
+            "RECURRENCE-ID:20260308T130000Z"
+        }));
+        assert_eq!(rendered.matches("BEGIN:VEVENT").count(), 1);
+    }
+    Ok(())
+}

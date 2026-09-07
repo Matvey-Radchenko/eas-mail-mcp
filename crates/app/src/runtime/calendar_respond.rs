@@ -45,6 +45,7 @@ impl Runtime {
         let account = backend.account();
         self.require_calendar_capabilities(&backend, true).await?;
         let _guard = self.write_locks.acquire(&reference.account_id).await?;
+        let backend = self.require_write(&reference.account_id)?;
         if let Some(record) =
             self.replay_write("calendar_respond", &input.idempotency_key, input)?
         {
@@ -89,14 +90,18 @@ impl Runtime {
                 Err(error) => return self.calendar_failure(&begin.record, 0, error, None),
             };
         let mut steps = STEP_RESPONSE;
-        self.journal.checkpoint(&begin.record.operation_id, steps)?;
-        let event_ref = response_reference(self, source, calendar_id, input.response)?;
+        self.checkpoint_mutation(&begin.record, steps)?;
+        let event_ref = Self::journal_after_mutation(
+            response_reference(self, source, calendar_id, input.response),
+            &begin.record.account_id,
+            &begin.record.operation_id,
+        )?;
         if let Some(mime) = reply_mime {
             if let Err(error) = backend.send_calendar_message(&reply_id, mime).await {
                 return self.calendar_failure(&begin.record, steps, error, event_ref);
             }
             steps |= STEP_REPLY;
-            self.journal.checkpoint(&begin.record.operation_id, steps)?;
+            self.checkpoint_mutation(&begin.record, steps)?;
         }
         self.calendar_success(&begin.record, steps, event_ref)
     }
@@ -111,6 +116,7 @@ impl Runtime {
         let account = backend.account();
         self.require_calendar_capabilities(&backend, true).await?;
         let _guard = self.write_locks.acquire(&reference.account_id).await?;
+        let backend = self.require_write(&reference.account_id)?;
         let fetched = self.account_result(
             &reference.account_id,
             backend.fetch_mail(&reference.source, 50_000).await,
@@ -118,9 +124,10 @@ impl Runtime {
         if input.scope.is_some_and(|scope| scope != crate::model::CalendarScope::Series) {
             return Err(validation("occurrence responses require a calendar occurrence reference"));
         }
-        let prepared = calendar_response_prepare::prepare(&fetched, self.clock.now())?;
+        let prepared = calendar_response_prepare::prepare(&fetched.fields, self.clock.now())?;
         write_preview::verify(
-            &response_preview(&reference.account_id, &prepared.event, input),
+            &response_preview(&reference.account_id, &prepared.event, input)
+                .field("Organizer", &prepared.organizer.email),
             expected,
         )?;
         let reply_id = step_client_id(&input.idempotency_key, "reply")?;
@@ -142,12 +149,12 @@ impl Runtime {
             return self.calendar_failure(&begin.record, 0, error, None);
         }
         let mut steps = STEP_RESPONSE;
-        self.journal.checkpoint(&begin.record.operation_id, steps)?;
+        self.checkpoint_mutation(&begin.record, steps)?;
         if let Err(error) = backend.send_calendar_message(&reply_id, reply_mime).await {
             return self.calendar_failure(&begin.record, steps, error, None);
         }
         steps |= STEP_REPLY;
-        self.journal.checkpoint(&begin.record.operation_id, steps)?;
+        self.checkpoint_mutation(&begin.record, steps)?;
         self.calendar_success(&begin.record, steps, None)
     }
 }

@@ -1,6 +1,11 @@
 #[expect(dead_code, reason = "shared integration-test support is compiled once per test binary")]
 mod support;
 
+#[path = "mailbox_calendar_writes/agenda_key.rs"]
+mod agenda_key;
+#[path = "mailbox_calendar_writes/exception_delta.rs"]
+mod exception_delta;
+
 use chrono::{TimeZone as _, Utc};
 use eas_mail_mcp::backend::{
     AccountBackend as _, BackendCalendarMutation, BackendEvent, BackendMail, MailSource,
@@ -113,7 +118,7 @@ async fn item_operations_source_is_rebound_for_change_response_and_delete() -> a
         mutation(
             Command::MeetingResponse,
             build_meeting_response("calendar", "event-current", MeetingResponseChoice::Tentative)?,
-            meeting_response("event-current", Some("accepted-event"))?,
+            meeting_response(false, "event-current", Some("accepted-event"))?,
         ),
         mutation(
             Command::Sync,
@@ -174,7 +179,7 @@ async fn inbox_meeting_response_uses_search_long_id_and_refreshes_policy() -> an
             Some(701),
             RequestSafety::Mutation,
             200,
-            meeting_response("long-request", Some("accepted-event"))?,
+            meeting_response(true, "long-request", Some("accepted-event"))?,
         ),
     ];
     let (mailbox, transport) = mailbox(calls, default_policy())?;
@@ -362,29 +367,40 @@ fn mutation_response(
     let mut root = Element::new("AirSync", "Sync");
     let mut collections = Element::new("AirSync", "Collections");
     let mut collection = Element::new("AirSync", "Collection");
-    collection.push(Element::text("AirSync", "Status", "1"));
+    collection.push(Element::text("AirSync", "CollectionId", "calendar"));
+    collection.push(Element::text("AirSync", "Status", if status == 3 { "3" } else { "1" }));
     collection.push(Element::text("AirSync", "SyncKey", sync_key));
     let mut responses = Element::new("AirSync", "Responses");
     let mut response = Element::new("AirSync", command);
+    if command == "Add" {
+        response.push(Element::text("AirSync", "ClientId", "client-1"));
+    }
     response.push(Element::text("AirSync", "Status", status.to_string()));
     if let Some(server_id) = server_id {
         response.push(Element::text("AirSync", "ServerId", server_id));
     }
-    responses.push(response);
-    collection.push(responses);
+    if status != 3 && (command == "Add" || server_id.is_some()) {
+        responses.push(response);
+        collection.push(responses);
+    }
     collections.push(collection);
     root.push(collections);
     encode(&root)
 }
 
 fn meeting_response(
+    long_id: bool,
     request_id: &str,
     calendar_id: Option<&str>,
 ) -> eas_mail_protocol::Result<Vec<u8>> {
     let mut root = Element::new("MeetingResponse", "MeetingResponse");
     let mut result = Element::new("MeetingResponse", "Result");
     result.push(Element::text("MeetingResponse", "Status", "1"));
-    result.push(Element::text("MeetingResponse", "RequestId", request_id));
+    result.push(Element::text(
+        if long_id { "Search" } else { "MeetingResponse" },
+        if long_id { "LongId" } else { "RequestId" },
+        request_id,
+    ));
     if let Some(calendar_id) = calendar_id {
         result.push(Element::text("MeetingResponse", "CalendarId", calendar_id));
     }

@@ -92,6 +92,18 @@ pub(crate) fn is_link_or_reparse(metadata: &fs::Metadata) -> bool {
     metadata.file_type().is_symlink() || is_reparse_point(metadata)
 }
 
+#[cfg(windows)]
+pub(crate) fn is_directory_reparse_point(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt as _;
+    const DIRECTORY_REPARSE_POINT: u32 = 0x0010 | 0x0400;
+    metadata.file_attributes() & DIRECTORY_REPARSE_POINT == DIRECTORY_REPARSE_POINT
+}
+
+#[cfg(not(windows))]
+pub(crate) const fn is_directory_reparse_point(_: &fs::Metadata) -> bool {
+    false
+}
+
 #[cfg(unix)]
 fn set_file_mode(options: &mut OpenOptions) {
     use std::os::unix::fs::OpenOptionsExt as _;

@@ -2,8 +2,12 @@ use std::path::Path;
 
 use serde_json::Value;
 
+#[path = "cli/auto_reply.rs"]
+mod auto_reply;
 #[path = "cli/support.rs"]
 mod cli_support;
+#[path = "cli/mail_mutations.rs"]
+mod mail_mutations;
 #[path = "cli/series.rs"]
 mod series;
 

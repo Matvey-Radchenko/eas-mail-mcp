@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a reproducible problem with the latest stable release.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For vulnerabilities, use the private reporting route in SECURITY.md.
+        Never paste credentials, mailbox content, endpoint profiles, account/client configuration,
+        databases, or raw transport logs. Use synthetic values in examples.
+  - type: input
+    id: version
+    attributes:
+      label: Application version
+      description: Output of eas-mail-mcp --version, without local paths.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS Apple Silicon
+        - macOS Intel
+        - Windows x64
+        - Wine or Whisky
+        - Unsupported platform
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Command/tool name and steps with synthetic inputs; include stable error codes.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Safe support report
+      description: Optional saved output from doctor --check --report ./support-report.json. Do not paste normal doctor output or config files.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submitting
+      options:
+        - label: I reviewed the report and removed any private data from additional examples or attachments.
+          required: true

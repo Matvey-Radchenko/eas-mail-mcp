@@ -18,7 +18,7 @@ pub struct BackendAccount {
 }
 
 /// Immutable Exchange reference for one message.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MailSource {
     /// Item returned by collection Sync.
     Item {
@@ -42,6 +42,19 @@ pub struct BackendMail {
     pub source: MailSource,
     /// Parsed mail fields.
     pub fields: MailFields,
+}
+
+/// One bounded server-side mail search page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendMailSearchPage {
+    /// Server warned that its retrievable range may omit further matches.
+    pub server_truncated: bool,
+    /// Candidate messages before local metadata filtering.
+    pub items: Vec<BackendMail>,
+    /// Optional server estimate of matching candidates.
+    pub total: Option<usize>,
+    /// Inclusive server range, when supplied.
+    pub range: Option<eas_mail_protocol::SearchRange>,
 }
 
 /// Process-local calendar record.
@@ -81,6 +94,12 @@ pub struct BackendCapabilities {
     pub personal_calendar_writes: bool,
     /// Whether meeting notifications and received responses are available.
     pub meeting_lifecycle: bool,
+    /// Whether Settings is advertised; write permission is not probed.
+    pub auto_reply: bool,
+    /// Whether MoveItems is advertised; write permission is not probed.
+    pub mail_move: bool,
+    /// Whether Sync property changes are advertised; write permission is not probed.
+    pub mail_properties: bool,
 }
 
 /// Prepared non-recurring event sent to a backend Calendar mutation.
@@ -114,4 +133,6 @@ pub struct OutgoingMail {
     pub subject: String,
     /// Plain-text body.
     pub body: String,
+    /// Prepared local attachments held in memory for this operation only.
+    pub attachments: Vec<eas_mail_protocol::protocol::MimeAttachment>,
 }

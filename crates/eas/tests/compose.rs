@@ -65,8 +65,8 @@ fn compose_builders_preserve_opaque_mime_and_sources() -> eas_mail_protocol::Res
 fn compose_parser_accepts_empty_success_and_reads_status() -> eas_mail_protocol::Result<()> {
     assert_eq!(parse_compose(&[])?.status, 1);
     let mut root = Element::new("ComposeMail", "SendMail");
-    root.push(Element::text("ComposeMail", "Status", "7"));
-    assert_eq!(parse_compose(&encode(&root)?)?.status, 7);
+    root.push(Element::text("ComposeMail", "Status", "122"));
+    assert_eq!(parse_compose(&encode(&root)?)?.status, 122);
     assert!(parse_compose(&[0xFF]).is_err());
     Ok(())
 }

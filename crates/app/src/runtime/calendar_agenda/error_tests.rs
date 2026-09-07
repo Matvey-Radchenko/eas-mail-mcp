@@ -105,7 +105,7 @@ fn malformed_event_exceptions_and_eas_timezones_are_rejected() -> anyhow::Result
     assert!(recurrence::expand(missing_end, range()?, chrono_tz::UTC).is_err());
 
     let mut bad_duration = recurring_event()?;
-    bad_duration.fields.ends_at = bad_duration.fields.starts_at.clone();
+    bad_duration.fields.ends_at = Patch::Value(Some("2026-08-03T08:00:00Z".parse()?));
     assert!(recurrence::expand(bad_duration, range()?, chrono_tz::UTC).is_err());
 
     for exception in [

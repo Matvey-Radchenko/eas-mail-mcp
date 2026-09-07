@@ -30,7 +30,9 @@ Mail, event, and attachment references are stateless versioned strings shared by
 MCP and CLI. They encode only an account ID and the minimum EAS locator, never
 message or event content. They are validated on every use and remain usable
 across processes while Exchange still recognizes the target. Snapshot cursors
-remain process-local because they address immutable vectors in RAM.
+remain process-local because they address immutable vectors in RAM. Each cursor
+is single-use and expires after 15 minutes, process exit, or eviction beyond
+32 retained cursors. Following a page returns a new cursor with its own lifetime.
 
 ## Dependency direction
 
@@ -76,8 +78,8 @@ Each collection owns its SyncKey. An invalid key resets only that collection.
 `Add`, `Change`, `Delete`, and `SoftDelete` are applied in wire order. A missing
 field preserves the old value; a present empty field clears it.
 
-Mail list and search results become immutable RAM snapshots for 15 minutes, with
-at most 32 snapshots. Each summary receives a portable mail reference. Mail
+Mail list and search results become immutable RAM snapshots addressed by the
+bounded, single-use cursors described above. Each summary receives a portable mail reference. Mail
 Search always uses EAS Search. Full bodies and attachments use ItemOperations
 only on demand.
 
@@ -146,7 +148,17 @@ UUID automatically.
 - TOML: profile key, email, username, enabled state, and write permission.
 - SQLite: operation UUID, account, kind, payload HMAC, EAS ClientId, state,
   completed-step bit mask, and timestamps. No mailbox content is stored.
-- Cache: explicitly requested attachments, mode 0600, removed after 24 hours.
+- Cache: explicitly requested attachments, Unix mode 0600 where supported, eligible for lazy cleanup
+  after 24 hours; startup and subsequent downloads perform cleanup under a
+  process-shared file lock. There is no background deletion timer.
+
+Journal schema migrations run transactionally under a SQLite write lock and
+reject unknown future versions. Recovery acquires the account's process-shared
+write lock before changing abandoned pending records to `unknown`. Completed
+`succeeded` and `failed` UUIDs remain protected for 90 days after their last
+durable update. Startup may prune them after that interval; the same UUID may
+then execute again. Normal expiry never prunes `pending`, `unknown`, or `partial`.
+Remote-wipe policy cleanup remains separate from routine retention.
 
 ## MCP contract
 
@@ -154,16 +166,19 @@ All tool results use `data`, `error`, and `warnings`. One account may fail while
 another returns data. Mail limits are 100 records, 500-character previews,
 12,000 body characters by default, and 50,000 maximum. Availability accepts 20
 participants and 31 days, has 30-minute precision, and fails rather than
-truncating above 256 KiB. The development contract exposes 14 read tools, four mail writes,
-and five Calendar writes. All mutations require account opt-in and
+truncating above 256 KiB. Version 1.0 exposes 36 tools: 21 reads and 15 writes.
+The executable [contract baseline](../contracts/README.md) records the exact
+names, schemas, annotations, and CLI surface. Fatal runtime errors set MCP
+`isError=true` while retaining structured content; partial results retain data
+and machine-readable warnings. All mutations require account opt-in and
 durable idempotency state before the first external side effect. An explicit
 write-tool call validates and executes immediately; draft or review workflows
 remain in the agent and must not call the mutation tool.
 
 ## CLI contract
 
-The CLI exposes 22 account, folder, directory, mail, and Calendar commands over the same
-runtime methods. `sync_status` and `sync_now` remain MCP-only because their
+The CLI exposes account, folder, directory, mail, calendar, journal, diagnostics,
+and cache commands over the same runtime methods. `sync_status` and `sync_now` remain MCP-only because their
 process-local synchronization state disappears at CLI exit. JSON envelopes go
 to stdout by default; human output is opt-in. Diagnostics, previews, prompts,
 and errors go to stderr.

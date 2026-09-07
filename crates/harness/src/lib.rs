@@ -2,8 +2,11 @@
 
 #![deny(missing_docs)]
 
+pub mod contract;
 mod deterministic;
 mod fake_backend;
+#[cfg(feature = "live")]
+pub mod live_mail;
 mod memory_journal;
 mod scripted_transport;
 

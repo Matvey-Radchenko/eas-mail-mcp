@@ -10,34 +10,8 @@ use rmcp::service::{Peer, RoleClient};
 use rmcp::transport::{ConfigureCommandExt as _, TokioChildProcess};
 use serde_json::{Value, json};
 
-const TOOLS: [&str; 23] = [
-    "accounts_list",
-    "people_search",
-    "folders_list",
-    "sync_status",
-    "sync_now",
-    "mail_list",
-    "mail_search",
-    "mail_get",
-    "mail_list_attachments",
-    "mail_download_attachment",
-    "calendar_availability",
-    "calendar_find_slots",
-    "calendar_search",
-    "calendar_get",
-    "mail_mark_read",
-    "mail_send",
-    "mail_reply",
-    "mail_forward",
-    "calendar_create",
-    "calendar_update",
-    "calendar_delete",
-    "calendar_cancel",
-    "calendar_respond",
-];
-
 #[tokio::test]
-async fn black_box_server_exposes_and_executes_every_tool() -> Result<()> {
+async fn black_box_server_exposes_release_contract_and_executes_core_tools() -> Result<()> {
     let transport = TokioChildProcess::new(
         tokio::process::Command::new(env!("CARGO_BIN_EXE_harness-server")).configure(|command| {
             command.kill_on_drop(true);
@@ -56,8 +30,8 @@ async fn black_box_server_exposes_and_executes_every_tool() -> Result<()> {
     anyhow::ensure!(implementation.version == env!("CARGO_PKG_VERSION"));
 
     let tools = peer.list_all_tools().await?;
-    let names = tools.iter().map(|tool| tool.name.as_ref()).collect::<BTreeSet<_>>();
-    let expected = TOOLS.into_iter().collect::<BTreeSet<_>>();
+    let names = tools.iter().map(|tool| tool.name.to_string()).collect::<BTreeSet<_>>();
+    let expected = eas_mail_mcp_harness::contract::expected_tool_names()?;
     anyhow::ensure!(names == expected, "unexpected tool contract: {names:?}");
     verify_tool_schemas(&tools)?;
     let invalid = call_result(&peer, "mail_get", Some(json!({}))).await?;
@@ -130,6 +104,18 @@ async fn black_box_server_exposes_and_executes_every_tool() -> Result<()> {
 
 fn verify_tool_schemas(tools: &[rmcp::model::Tool]) -> Result<()> {
     anyhow::ensure!(tools.iter().all(|tool| tool.output_schema.is_some()), "missing output schema");
+    for tool in tools {
+        let schema = tool.output_schema.as_ref().context("missing output schema")?;
+        let fields = schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .context("output schema is not an envelope object")?;
+        anyhow::ensure!(
+            ["data", "error", "warnings"].iter().all(|field| fields.contains_key(*field)),
+            "{} output schema does not describe the actual ApiResponse envelope",
+            tool.name
+        );
+    }
     let schemas = serde_json::to_value(tools)?;
     anyhow::ensure!(
         !contains_numeric_format(&schemas),
@@ -360,7 +346,9 @@ async fn black_box_independent_stdio_processes_start_cleanly() -> Result<()> {
         )))?;
         let client = ().serve(transport).await?;
         let tools = client.list_all_tools().await?;
-        anyhow::ensure!(tools.len() == TOOLS.len());
+        anyhow::ensure!(
+            tools.len() == eas_mail_mcp_harness::contract::expected_tool_names()?.len()
+        );
         client.cancel().await?;
     }
     Ok(())

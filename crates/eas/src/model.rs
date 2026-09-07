@@ -127,6 +127,14 @@ pub struct MailFields {
     pub message_class: Patch<String>,
     /// Meeting request metadata when this mail is actionable Calendar content.
     pub meeting_request: Patch<MeetingRequest>,
+    /// Server-owned opaque conversation identifier; never interpreted as UTF-8.
+    pub conversation_id: Patch<Vec<u8>>,
+    /// Server-owned opaque position within a conversation.
+    pub conversation_index: Patch<Vec<u8>>,
+    /// Complete server flag container, retained for lossless flag changes.
+    pub flag: Patch<crate::wbxml::Element>,
+    /// Exact category set, with missing metadata distinct from an empty set.
+    pub categories: Patch<Vec<String>>,
 }
 
 /// Calendar fields with exact partial-update semantics.
@@ -279,6 +287,10 @@ pub struct SyncPage {
 pub struct SearchMail {
     /// LongId used by ItemOperations.
     pub long_id: String,
+    /// Collection identifier when supplied by Exchange.
+    pub collection_id: Option<String>,
+    /// Mutable item identifier when supplied by Exchange.
+    pub server_id: Option<String>,
     /// Parsed summary fields.
     pub fields: MailFields,
 }
@@ -308,6 +320,10 @@ pub struct SearchCalendarPage {
 /// Full item returned by ItemOperations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemResult {
+    /// Collection identifier when supplied by Exchange.
+    pub collection_id: Option<String>,
+    /// Mutable item identifier when supplied by Exchange.
+    pub server_id: Option<String>,
     /// Parsed mail fields.
     pub fields: MailFields,
 }

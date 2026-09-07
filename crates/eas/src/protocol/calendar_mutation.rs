@@ -1,7 +1,7 @@
-use crate::wbxml::{decode, encode};
+use crate::wbxml::encode;
 use crate::{CalendarApplication, EasError, MutationResult, Result};
 
-use super::tree::{direct_text, element, integer, push_text};
+use super::tree::{element, push_text};
 
 /// Builds a Calendar Sync/Add command for one item, including supported recurrence and exceptions.
 pub fn build_calendar_add(
@@ -34,26 +34,7 @@ pub fn build_calendar_delete(
 
 /// Parses Add, Change, or Delete Sync responses.
 pub fn parse_calendar_mutation_sync(data: &[u8]) -> Result<MutationResult> {
-    let root = decode(data)?.ok_or_else(|| {
-        EasError::Protocol("Exchange returned an empty Calendar Sync response".into())
-    })?;
-    let account_status = integer(direct_text(&root, "AirSync", "Status"), 1);
-    let collection = root
-        .descendant("AirSync", "Collection")
-        .ok_or_else(|| EasError::Protocol("Calendar Sync response has no collection".into()))?;
-    let collection_status = integer(direct_text(collection, "AirSync", "Status"), 1);
-    let sync_key = direct_text(collection, "AirSync", "SyncKey");
-    let response =
-        collection.child("AirSync", "Responses").and_then(|responses| responses.children().next());
-    let response_status = response
-        .and_then(|value| direct_text(value, "AirSync", "Status"))
-        .map_or(1, |value| integer(Some(value), 1));
-    let server_id = response.and_then(|value| direct_text(value, "AirSync", "ServerId"));
-    let status = [account_status, collection_status, response_status]
-        .into_iter()
-        .find(|value| *value != 1)
-        .unwrap_or(1);
-    Ok(MutationResult { status, sync_key, server_id })
+    super::calendar_mutation_response::parse_unbound(data)
 }
 
 enum CalendarCommand<'a> {

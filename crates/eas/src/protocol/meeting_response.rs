@@ -1,7 +1,8 @@
 use crate::wbxml::{decode, encode};
 use crate::{EasError, MeetingResponseChoice, MeetingResponseResult, Result};
 
-use super::tree::{direct_text, element, integer, push_text};
+use super::mutation_response::{child, malformed, status, text};
+use super::tree::{element, push_text};
 
 /// Builds one EAS MeetingResponse request.
 pub fn build_meeting_response(
@@ -61,15 +62,49 @@ pub fn build_meeting_response_long_id(
 
 /// Parses one EAS MeetingResponse result.
 pub fn parse_meeting_response(data: &[u8]) -> Result<MeetingResponseResult> {
-    let root = decode(data)?
-        .ok_or_else(|| EasError::Protocol("Exchange returned an empty MeetingResponse".into()))?;
-    let result = root
-        .descendant("MeetingResponse", "Result")
-        .ok_or_else(|| EasError::Protocol("MeetingResponse has no Result".into()))?;
-    Ok(MeetingResponseResult {
-        status: integer(direct_text(result, "MeetingResponse", "Status"), 0),
-        request_id: direct_text(result, "MeetingResponse", "RequestId").unwrap_or_default(),
-        calendar_id: direct_text(result, "MeetingResponse", "CalendarId")
-            .filter(|value| !value.is_empty()),
-    })
+    parse_response(data, None)
+}
+
+pub(crate) fn parse_for(
+    data: &[u8],
+    namespace: &str,
+    identifier: &str,
+) -> Result<MeetingResponseResult> {
+    parse_response(data, Some((namespace, identifier)))
+}
+
+fn parse_response(data: &[u8], expected: Option<(&str, &str)>) -> Result<MeetingResponseResult> {
+    let root = decode(data)?.ok_or_else(|| malformed("empty MeetingResponse acknowledgement"))?;
+    if root.namespace != "MeetingResponse"
+        || root.name != "MeetingResponse"
+        || root.children().count() != 1
+    {
+        return Err(malformed("MeetingResponse must acknowledge exactly one result"));
+    }
+    let result = child(&root, "MeetingResponse", "Result")?
+        .ok_or_else(|| malformed("MeetingResponse has no direct Result"))?;
+    let status = status(result, "MeetingResponse", &[1, 2, 3, 4])?;
+    let request_id = text(result, "MeetingResponse", "RequestId")?;
+    let long_id = text(result, "Search", "LongId")?;
+    if request_id.is_some() && long_id.is_some() {
+        return Err(malformed("MeetingResponse has conflicting identifiers"));
+    }
+    let calendar_id = text(result, "MeetingResponse", "CalendarId")?;
+    if request_id.as_ref().is_some_and(String::is_empty)
+        || long_id.as_ref().is_some_and(String::is_empty)
+        || calendar_id.as_ref().is_some_and(String::is_empty)
+    {
+        return Err(malformed("MeetingResponse contains an empty identifier"));
+    }
+    if let Some((namespace, identifier)) = expected {
+        let (returned, wrong_kind) = if namespace == "Search" {
+            (long_id.as_deref(), request_id.is_some())
+        } else {
+            (request_id.as_deref(), long_id.is_some())
+        };
+        if wrong_kind || returned.is_some_and(|returned| returned != identifier) {
+            return Err(malformed("MeetingResponse acknowledges a different request"));
+        }
+    }
+    Ok(MeetingResponseResult { status, request_id: request_id.unwrap_or_default(), calendar_id })
 }

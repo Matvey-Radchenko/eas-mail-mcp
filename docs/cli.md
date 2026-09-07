@@ -15,10 +15,12 @@ reference.
 | Accounts | `account list` |
 | Folders | `folder list` |
 | People | `people search` |
-| Mail reads | `mail list`, `mail search`, `mail get`, `mail attachments`, `mail download` |
-| Mail writes | `mail mark-read`, `mail send`, `mail reply`, `mail forward` |
-| Calendar reads | `calendar availability`, `calendar find-slots`, `calendar search`, `calendar agenda`, `calendar get` |
+| Mail reads | `mail list`, `mail search`, `mail get`, `mail get-many`, `mail thread`, `mail attachments`, `mail download`, `mail auto-reply get` |
+| Mail writes | `mail mark-read`, `mail send`, `mail reply`, `mail forward`, `mail move`, `mail delete`, `mail set-flag`, `mail set-categories`, `mail batch`, `mail auto-reply set` |
+| Calendar reads | `calendar availability`, `calendar find-slots`, `calendar recurring-slots`, `calendar search`, `calendar agenda`, `calendar get` |
 | Calendar writes | `calendar create`, `calendar update`, `calendar delete`, `calendar cancel`, `calendar respond` |
+| Recovery | `operation get`, `operation list`, `doctor --check`, `doctor --report` |
+| Attachment cache | `cache status`, `cache clear` |
 
 `sync_status` and `sync_now` are MCP-only. Their synchronization state is held
 in the MCP process and would not be useful after a one-shot CLI process exits.
@@ -57,7 +59,8 @@ Exit codes are stable:
 
 ## Input modes
 
-Every operational command accepts normal flags or `--input <file|->`. The input
+Mail, calendar, people, and folder read commands accept normal flags or
+`--input <file|->`. The input
 file is the JSON object accepted by the corresponding MCP tool. Unknown fields
 are rejected, and command data flags cannot be mixed with `--input`.
 
@@ -118,7 +121,7 @@ eas-mail-mcp mail download 'ref1.attachment...'
 Write examples:
 
 ```bash
-eas-mail-mcp mail mark-read "$mail_ref" read
+eas-mail-mcp mail mark-read "$mail_ref" read --sync-folder
 eas-mail-mcp mail send \
   --account work \
   --to person@example.com \
@@ -130,6 +133,34 @@ eas-mail-mcp mail forward "$mail_ref" --to person@example.com --body "FYI"
 
 `--to`, `--cc`, and `--bcc` are repeatable. No shell-specific comma-list or
 array syntax is required.
+
+Send, reply, and forward accept repeated `--attach ./file.pdf`. Files must be
+explicit local paths. Limits are 20 files, 25 MiB of raw attachments, and 35 MiB
+of encoded MIME. The preview lists each attachment before confirmation.
+
+```bash
+eas-mail-mcp mail thread "$mail_ref" --limit 20
+eas-mail-mcp mail get-many "$first_ref" "$second_ref"
+eas-mail-mcp mail move "$mail_ref" '<destination-folder-id>'
+eas-mail-mcp mail delete "$mail_ref"
+eas-mail-mcp mail set-flag "$mail_ref" active --sync-folder
+eas-mail-mcp mail set-categories "$mail_ref" --category Project --category Review --sync-folder
+eas-mail-mcp mail set-categories "$mail_ref" --clear --sync-folder
+eas-mail-mcp mail batch --input batch.json --sync-folder
+```
+
+`delete` moves to Deleted Items; it does not permanently erase a message.
+Moves stay within one account and return a replacement reference. Flags accept
+`none`, `active`, or `complete`. Batch reads and writes accept at most 20 items
+and report each item's outcome; a batch is not an atomic transaction.
+
+A search reference can be readable while unavailable for point writes. The two
+tested servers do not return mutable item locators when fetching Search LongId;
+those writes return `FEATURE_UNAVAILABLE`. References from `mail list` carry the
+required locator. No hidden mailbox scan resolves this limitation.
+
+See [search and threads](mail-search-and-threads.md) for exact filters and bounded
+results, and [auto-reply](auto-reply.md) for scheduled internal/external replies.
 
 ## People
 
@@ -215,7 +246,12 @@ eas-mail-mcp calendar cancel 'ref1.event...' --comment "Cancelled"
 eas-mail-mcp calendar respond 'ref1.event...' accept --comment "Accepted"
 ```
 
-### Recurring events (unreleased)
+Participant-specific time zones, working hours, required/optional roles, and
+meeting buffers can be supplied in MCP-shaped JSON. `calendar recurring-slots`
+ranks a shared weekly time across a bounded date range. Exchange free/busy still
+has 30-minute resolution; see [scheduling](calendar-scheduling.md).
+
+### Recurring events
 
 ```bash
 eas-mail-mcp calendar create \
@@ -293,6 +329,64 @@ A completed duplicate returns the stored result. Reusing the UUID with a
 different payload returns `IDEMPOTENCY_CONFLICT`. A `partial` or `unknown`
 outcome must be reconciled instead of retried with a new UUID.
 
+## Diagnostics and recovery
+
+```bash
+eas-mail-mcp doctor --check
+eas-mail-mcp doctor --report ./diagnostic-report.json
+eas-mail-mcp operation get 9d45957c-86c1-4c25-a823-22c56d6a19d1
+eas-mail-mcp operation list --account work --status unknown --limit 20
+eas-mail-mcp cache status
+eas-mail-mcp cache clear --account work --yes
+```
+
+`doctor --check` exits with code 1 when an enabled account is unhealthy. Plain
+`doctor` preserves its successful diagnostic exit for per-account failures.
+`--report` writes a separate allowlisted report without account identifiers,
+email addresses, server names, local paths, or credentials. Normal doctor output
+is local diagnostic information; share the report file instead.
+For fresh per-account status through MCP, use `accounts_status`.
+
+`operation get/list` read the local journal without loading profiles or
+credentials and without contacting Exchange. They do not resend operations.
+List accepts `pending`, `succeeded`, `failed`, `partial`, or `unknown`, with a
+maximum limit of 100. These recovery commands and cache commands use flags,
+not MCP-shaped `--input`.
+
+`pending` means that no final outcome was saved; the owner may still be active
+or may have stopped before saving its result. Recovery changes an abandoned
+pending record to `unknown` only after obtaining its account's process lock.
+Never treat `pending`, `unknown`, or a zero step mask as permission to resend.
+
+`completed_steps` is a bit mask, not a count. For single mail operations and
+automatic replies, bit `1` records Exchange's acknowledgement. Historical
+mail operations written by 0.5.1 can have a zero mask even after success; their
+saved status remains authoritative and migration does not rewrite them.
+For calendar operations, combine the following values to interpret the mask:
+
+| Value | Confirmed calendar step |
+| --- | --- |
+| 1 | Calendar item changed |
+| 2 | Current attendees notified |
+| 4 | Removed attendees notified |
+| 8 | Meeting response applied |
+| 16 | Reply notification sent |
+| 32 | New series created |
+| 64 | Original series truncated |
+| 128 | Original series attendees notified |
+
+An automatic-reply acknowledgement does not prove read-back matched the request:
+inspect its final `status`, which remains `partial` if verification failed.
+
+Cache removal affects downloaded files only. Cleanup after 24 hours is lazy,
+not a background timer. See [diagnostics and cache](diagnostics.md) and the
+[update, recovery, and uninstall guide](getting-started.md).
+
 MCP writes still execute immediately once the MCP tool is called. They share
 the same validation, reference resolution, locking, stale checks, and journal,
 but user review must happen in the agent workflow before the write-tool call.
+
+Property changes need completed folder synchronization. The CLI `--sync-folder`
+flag explicitly permits loading the selected folders before preview; without it,
+a fresh process returns `FEATURE_UNAVAILABLE`. Replay skips synchronization.
+See [mail property writes](mail-properties.md) for limits and stale-reference handling.

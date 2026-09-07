@@ -43,11 +43,12 @@ fn search_request_validates_range_and_preview() -> eas_mail_protocol::Result<()>
 
 #[test]
 fn search_parser_handles_empty_errors_and_complete_mail() -> eas_mail_protocol::Result<()> {
-    assert!(parse_search(&[])?.is_empty());
+    assert!(parse_search(&[]).is_err());
     let error = search_response(7, false, false)?;
     assert!(matches!(parse_search(&error), Err(EasError::Protocol(_))));
 
-    let response = search_response(1, true, true)?;
+    assert!(parse_search(&search_response(1, true, true)?).is_err());
+    let response = search_response(1, true, false)?;
     let output = parse_search(&response)?;
     assert_eq!(output.len(), 1);
     let result = &output[0];
@@ -140,17 +141,22 @@ enum Data {
 fn search_response(status: u16, valid: bool, ignored: bool) -> eas_mail_protocol::Result<Vec<u8>> {
     let mut root = Element::new("Search", "Search");
     root.push(Element::text("Search", "Status", status.to_string()));
+    let mut response = Element::new("Search", "Response");
+    let mut store = Element::new("Search", "Store");
+    store.push(Element::text("Search", "Status", "1"));
     if valid {
         let mut result = Element::new("Search", "Result");
         result.push(Element::text("Search", "LongId", "long-1"));
         result.push(mail_properties("Report", "Preview"));
-        root.push(result);
+        store.push(result);
     }
     if ignored {
         let mut result = Element::new("Search", "Result");
         result.push(mail_properties("Ignored", "Ignored"));
-        root.push(result);
+        store.push(result);
     }
+    response.push(store);
+    root.push(response);
     encode(&root)
 }
 

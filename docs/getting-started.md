@@ -30,6 +30,12 @@ The root npm package selects the matching native package. It has no
 but configured MCP clients execute the printed Rust binary directly, so Node.js
 does not remain in the active MCP connection.
 
+Keep npm optional dependencies enabled: the native executable is delivered by
+one of them. If the command is not found after installation, reopen the terminal
+and check that npm's global command directory is on `PATH`: `npm prefix -g`
+prints the prefix; commands are in its `bin` subdirectory on macOS and directly
+in the prefix on Windows.
+
 ## Run the setup wizard
 
 ```bash
@@ -44,7 +50,8 @@ On a first run, the wizard:
 3. Checks the profile and TLS connection, authentication, EAS 14.1
    capabilities, Provision policy, and FolderSync.
 4. Saves the account and operating-system credentials only after verification succeeds.
-5. Offers to enable mail and calendar writes. They are off by default.
+5. Offers to enable mail and calendar writes, including automatic replies. They
+   are off by default.
 6. Offers to add another account.
 7. Configures detected Codex, Claude Code, and OpenCode clients with backup and
    rollback protection.
@@ -133,7 +140,8 @@ can provide all required flags and `--password-stdin`. An incomplete non-TTY
 call fails with `INTERACTIVE_REQUIRED`; credentials should never be placed in
 command arguments, `.env`, profile files, or MCP client configuration.
 
-Enabling writes allows both mail and calendar mutations for that account. A
+Enabling writes allows supported mail and calendar mutations for that account,
+including sending messages and setting automatic replies. A
 write tool executes when the AI client calls it; the server does not display a
 second confirmation dialog. Keep writes off unless the client and its operating
 instructions provide the desired user-control model.
@@ -211,11 +219,13 @@ from local config and credentials from Keychain or Windows Credential Manager.
 ```bash
 eas-mail-mcp profile list
 eas-mail-mcp account list
-eas-mail-mcp doctor
+eas-mail-mcp doctor --check
 ```
 
 After restarting the AI client, verify the MCP with the read-only
-`accounts_list` and `folders_list` tools. Do not use a mail or calendar write as
+`accounts_status` and `folders_list` tools. `accounts_list` shows configuration;
+`accounts_status` performs a fresh check and preserves each account's failure.
+Do not use a mail or calendar write as
 an installation test unless the account owner explicitly enabled and requested
 that operation.
 
@@ -248,9 +258,12 @@ Windows:             %LOCALAPPDATA%\EAS Mail MCP
 macOS Keychain or Windows Credential Manager stores passwords, Device IDs,
 policy state, and the HMAC key used by the content-free idempotency journal.
 Mail and calendar data are not stored in a local database. Explicitly
-downloaded attachments use the application cache and expire automatically.
+downloaded attachments use the application cache. They become eligible for
+cleanup after 24 hours; startup and subsequent downloads perform cleanup.
+There is no background deletion timer. Inspect or clear downloads with
+`cache status` and `cache clear --yes`; see [diagnostics](diagnostics.md).
 
-### Windows 0.4.0 credential capacity
+### Windows credential capacity
 
 All accounts share one Credential Manager entry. Windows limits its credential
 blob to [2,560 bytes](https://learn.microsoft.com/en-us/windows/win32/api/wincred/ns-wincred-credentialw);
@@ -268,39 +281,121 @@ The local profile and account files are trusted against accidental corruption,
 not a malicious process running as the same operating-system user. See
 [Security](../SECURITY.md) for the complete boundary.
 
-## Update or uninstall
+## Update and recover
 
-Update to the latest stable release:
+Record the installed version and finish or investigate any uncertain writes
+before updating. Quit configured MCP clients so their stdio processes close.
+For a recovery backup, copy the application-support directory while the
+processes are stopped; keep that copy private. Credentials remain in the OS
+store and should not be exported to plaintext.
 
 ```bash
+eas-mail-mcp --version
+eas-mail-mcp operation list --status unknown
 npm install -g eas-mail-mcp@latest
+eas-mail-mcp --version
+eas-mail-mcp doctor --check
 ```
 
-The native executable path normally remains stable, but restart configured MCP
-clients so their active processes use the new binary.
+`operation list` is available from 1.0; skip that command when upgrading an older
+installation. Profiles and accounts are retained. The 1.0 journal migration is
+transactional and preserves existing operation UUIDs and outcomes. Never delete
+the journal as an upgrade step.
 
-Remove the npm package:
+Successful and safely failed operations protect their UUID for 90 days after
+the last recorded update. Startup can remove those completed records after
+90 days, so reusing an older UUID can execute a new operation. Routine cleanup
+never removes `pending`, `unknown`, or `partial` records. Remote-wipe policy
+cleanup is separate. Keep the current journal when investigating any uncertain
+operation; cache clearing does not affect UUID protection.
+
+Restart configured MCP clients, then run `accounts_status`. If the npm prefix or
+native path changed, rerun `client configure` for each affected client. A working
+CLI does not update a client process that was already running.
+
+If an update cannot be used, keep writes disabled, retain its safe report, and
+follow [support recovery](../SUPPORT.md). Downgrading 1.0 local data to 0.5.1 has
+not been accepted; reinstalling an older binary is not a verified data rollback.
+Older versions do not expose new tools or all new journal metadata. Preserve the
+current journal and credentials while diagnosing the problem. Do not restore an
+older journal after new writes: that discards idempotency history and can cause
+duplicate operations. If a version rejects a newer local schema, reinstall the
+newer version instead of deleting or editing the database.
+
+## Unconfigure and uninstall
+
+Quit MCP clients, then remove the application's entries from the clients that
+were configured:
+
+```bash
+eas-mail-mcp client unconfigure codex
+eas-mail-mcp client unconfigure claude
+eas-mail-mcp client unconfigure opencode
+```
+
+Run only the commands for clients you use. They remove managed entries and keep
+unrelated client settings. Restart the clients afterward; configuration edits
+do not terminate an existing server connection by themselves.
+
+For a package-only uninstall, preserving setup for reinstallation:
 
 ```bash
 npm uninstall -g eas-mail-mcp
 ```
 
-Npm uninstall intentionally preserves local profiles, account configuration,
-the idempotency journal, and credential-store items. Remove accounts and profiles with
-the CLI before uninstalling when those settings should not remain.
+For full removal, complete these steps **before** uninstalling the CLI:
+
+```bash
+eas-mail-mcp operation list --status unknown
+eas-mail-mcp operation list --status partial
+eas-mail-mcp cache clear --yes
+eas-mail-mcp account list
+eas-mail-mcp account remove <account-id>
+eas-mail-mcp profile list
+eas-mail-mcp profile remove <unused-profile-id> --yes
+```
+
+Resolve any outstanding write uncertainty first. Repeat account/profile removal
+for each item you intend to remove. `account remove` removes that account's
+configuration and credential payload; it preserves the journal and downloads.
+Removing an account does not undo messages, events, or automatic replies on
+Exchange.
+
+| Data | After npm uninstall | Full-removal action |
+| --- | --- | --- |
+| Profiles and account metadata | Retained | Remove with CLI, or delete the application-support directory after all accounts are removed |
+| Downloaded attachments and cache locks | Retained | `cache clear`, then remove the cache directory when no process is running |
+| Journal, including partial/unknown outcomes | Retained | Remove only after reviewing outstanding operations and intentionally ending recovery support |
+| OS credential entry and HMAC key | Retained, even after the last account payload is removed | Remove the application's entry using the OS credential UI only when every account is being removed |
+| Client configuration backups | Retained under `Client Config Backups` in application support | Review and remove the copies; they may contain unrelated client configuration |
+| Exported profiles and support reports | Stored wherever you chose | Review and remove those files separately |
+
+On macOS, the credential is a generic-password item with service
+`eas-mail-mcp` and account `secrets-v1`. On Windows, its Generic Credential target
+is `secrets-v1.eas-mail-mcp`. Never remove that shared item while preserving
+another account. Use the directories listed under [Local data](#local-data) for
+the final file cleanup after all clients and CLI commands have stopped.
 
 ## Troubleshooting
 
 | Error or symptom | Meaning and next check |
 | --- | --- |
-| `AUTH_REQUIRED` | Exchange rejected the credentials. Re-enter the password and verify the email/login format selected by the profile. |
+| `AUTH_REQUIRED` | Credentials are missing, the OS credential store is locked/unavailable, or Exchange rejected the login. Unlock the store or update the password, and verify the profile's email/login format. |
+| Native package missing | Reinstall with npm optional dependencies enabled; the launcher names the required platform package. |
 | `ACCESS_DENIED` | Credentials may be valid, but EAS access, device policy, or an allowlist prevents the operation. Contact the operator. |
 | `CONFIG_INVALID` | The profile or account metadata failed strict validation. Run `profile validate` and do not weaken endpoint or TLS rules. |
 | `INTERACTIVE_REQUIRED` | A command without a TTY omitted required scripted arguments. Run the interactive wizard or provide the documented non-secret flags and `--password-stdin`. |
-| `STORAGE_ERROR` with a per-entry size-limit message | On Windows `0.4.0`, the combined secret bundle exceeds Credential Manager capacity. Remove unused accounts; unlocking the store or re-entering the same password will not fix the size limit. |
+| `STORAGE_ERROR` with a per-entry size-limit message | On Windows, the combined secret bundle exceeds Credential Manager capacity. Remove unused accounts; unlocking the store or re-entering the same password will not fix the size limit. |
 | TLS or network failure | Check the required network/VPN and the profile's approved CA. Do not disable certificate or hostname verification. |
 | MCP is not visible | Run `client configure`, restart the client, then check `doctor` and the client's MCP diagnostics. |
 | Many MCP processes | Check how many client tasks or sessions are active. Each stdio connection has one process; stale processes should disappear after the owning client exits. |
+| `FEATURE_UNAVAILABLE` | The server omitted a required command or locator shape. Consult the feature's coverage and compatibility notes; do not broaden into a full mailbox export. |
+| `OUTCOME_UNKNOWN` or `partial` | Keep the original UUID, inspect `operation get UUID`, and read the affected server state before another mutation. |
+
+For a report safe to share, run
+`eas-mail-mcp doctor --check --report ./support-report.json`; ordinary diagnostic
+output may contain local account identifiers. See [Support](../SUPPORT.md) and
+the [compatibility matrix](compatibility.md).
 
 For a safe agent-assisted installation workflow in Russian, see
 [Инструкция для ИИ-агента](agent-installation.ru.md).

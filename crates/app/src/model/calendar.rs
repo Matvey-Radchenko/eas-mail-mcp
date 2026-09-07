@@ -84,7 +84,14 @@ pub struct CalendarFindSlotsInput {
     /// Whether tentative intervals can be used; defaults to false.
     #[serde(default)]
     pub allow_tentative: bool,
-    /// Maximum common windows, default 20 and maximum 50.
+    /// Per-participant role, timezone and working-hours overrides; omitted means all required.
+    #[serde(default)]
+    pub participant_options: Vec<super::CalendarParticipantOptions>,
+    /// Break before and after each meeting: 0-120 minutes, divisible by 15. Default zero.
+    #[serde(default)]
+    #[schemars(range(min = 0, max = 120))]
+    pub buffer_minutes: u16,
+    /// Maximum windows and suggestions, default 20 and maximum 50; recurring uses 5/10.
     #[schemars(range(min = 1, max = 50))]
     pub limit: Option<u8>,
 }
@@ -281,6 +288,12 @@ pub struct CalendarSlotsData {
     pub participants: Vec<CalendarSlotParticipant>,
     /// Chronological common free windows.
     pub windows: Vec<CalendarFreeWindow>,
+    /// Ranked concrete starts; required participants are conflict-free, optional conflicts explicit.
+    pub suggestions: Vec<super::CalendarSlotSuggestion>,
+    /// Requested break on each side of the meeting.
+    pub buffer_minutes: u16,
+    /// Whether additional valid windows or suggestions were omitted by the limit.
+    pub results_truncated: bool,
 }
 
 /// Compact own-calendar Search result.

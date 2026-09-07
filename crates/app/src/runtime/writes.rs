@@ -3,6 +3,7 @@ use serde::Serialize;
 use super::Runtime;
 use super::mail_write_preview::{forward, mark_read_preview, message_preview, send_message};
 use super::outgoing::{reply_message, validate_message};
+use super::outgoing_attachments;
 use super::write_preview;
 use crate::journal::payload_fingerprint;
 use crate::model::{
@@ -73,11 +74,16 @@ impl Runtime {
             return Ok((existing_result(record), Vec::new()));
         }
         let mail = self.references.mail(&input.mail_ref)?;
-        let backend = self.require_write(&mail.account_id)?;
+        self.require_write(&mail.account_id)?;
         let _guard = self.write_locks.acquire(&mail.account_id).await?;
+        let backend = self.require_write(&mail.account_id)?;
         let fetched =
             self.account_result(&mail.account_id, backend.fetch_mail(&mail.source, 1).await)?;
         write_preview::verify(&mark_read_preview(&fetched, input.is_read), expected)?;
+        self.account_result(
+            &mail.account_id,
+            backend.check_mail_property_ready(&fetched.source).await,
+        )?;
         let begin =
             self.begin_write(&mail.account_id, "mail_mark_read", &input.idempotency_key, &input)?;
         if !begin.inserted {
@@ -93,19 +99,23 @@ impl Runtime {
         input: MailSendInput,
         expected: Option<&str>,
     ) -> Result<(OperationResult, Vec<crate::Warning>)> {
-        if let Some(record) = self.replay_write("mail_send", &input.idempotency_key, &input)? {
+        let attachments = outgoing_attachments::prepare(&input.attachments)?;
+        let payload = outgoing_attachments::payload(&input, &attachments);
+        if let Some(record) = self.replay_write("mail_send", &input.idempotency_key, &payload)? {
             return Ok((existing_result(record), Vec::new()));
         }
-        let message = send_message(&input);
+        let mut message = send_message(&input);
+        message.attachments = attachments;
         validate_message(&message)?;
-        let backend = self.require_write(&input.account_id)?;
+        self.require_write(&input.account_id)?;
         let _guard = self.write_locks.acquire(&input.account_id).await?;
+        let backend = self.require_write(&input.account_id)?;
         write_preview::verify(
             &message_preview("mail_send", &input.account_id, &message),
             expected,
         )?;
         let begin =
-            self.begin_write(&input.account_id, "mail_send", &input.idempotency_key, &input)?;
+            self.begin_write(&input.account_id, "mail_send", &input.idempotency_key, &payload)?;
         if !begin.inserted {
             return Ok((existing_result(begin.record), Vec::new()));
         }
@@ -119,24 +129,32 @@ impl Runtime {
         input: MailReplyInput,
         expected: Option<&str>,
     ) -> Result<(OperationResult, Vec<crate::Warning>)> {
-        if let Some(record) = self.replay_write("mail_reply", &input.idempotency_key, &input)? {
+        let attachments = outgoing_attachments::prepare(&input.attachments)?;
+        let payload = outgoing_attachments::payload(&input, &attachments);
+        if let Some(record) = self.replay_write("mail_reply", &input.idempotency_key, &payload)? {
             return Ok((existing_result(record), Vec::new()));
         }
         let reference = self.references.mail(&input.mail_ref)?;
-        let backend = self.require_write(&reference.account_id)?;
+        self.require_write(&reference.account_id)?;
         let _guard = self.write_locks.acquire(&reference.account_id).await?;
+        let backend = self.require_write(&reference.account_id)?;
         let mail = self.account_result(
             &reference.account_id,
             backend.fetch_mail(&reference.source, 1).await,
         )?;
-        let message = reply_message(&mail, &backend.account().email, &input)?;
+        let mut message = reply_message(&mail, &backend.account().email, &input)?;
+        message.attachments = attachments;
         validate_message(&message)?;
         write_preview::verify(
             &message_preview("mail_reply", &reference.account_id, &message),
             expected,
         )?;
-        let begin =
-            self.begin_write(&reference.account_id, "mail_reply", &input.idempotency_key, &input)?;
+        let begin = self.begin_write(
+            &reference.account_id,
+            "mail_reply",
+            &input.idempotency_key,
+            &payload,
+        )?;
         if !begin.inserted {
             return Ok((existing_result(begin.record), Vec::new()));
         }
@@ -150,17 +168,21 @@ impl Runtime {
         input: MailForwardInput,
         expected: Option<&str>,
     ) -> Result<(OperationResult, Vec<crate::Warning>)> {
-        if let Some(record) = self.replay_write("mail_forward", &input.idempotency_key, &input)? {
+        let attachments = outgoing_attachments::prepare(&input.attachments)?;
+        let payload = outgoing_attachments::payload(&input, &attachments);
+        if let Some(record) = self.replay_write("mail_forward", &input.idempotency_key, &payload)? {
             return Ok((existing_result(record), Vec::new()));
         }
         let reference = self.references.mail(&input.mail_ref)?;
-        let backend = self.require_write(&reference.account_id)?;
+        self.require_write(&reference.account_id)?;
         let _guard = self.write_locks.acquire(&reference.account_id).await?;
+        let backend = self.require_write(&reference.account_id)?;
         let mail = self.account_result(
             &reference.account_id,
             backend.fetch_mail(&reference.source, 1).await,
         )?;
-        let message = forward(&mail, &input);
+        let mut message = forward(&mail, &input);
+        message.attachments = attachments;
         validate_message(&message)?;
         write_preview::verify(
             &message_preview("mail_forward", &reference.account_id, &message),
@@ -170,7 +192,7 @@ impl Runtime {
             &reference.account_id,
             "mail_forward",
             &input.idempotency_key,
-            &input,
+            &payload,
         )?;
         if !begin.inserted {
             return Ok((existing_result(begin.record), Vec::new()));
@@ -232,36 +254,6 @@ impl Runtime {
             status: OperationStatus::Pending,
             completed_steps: 0,
         })
-    }
-
-    fn finish_write(
-        &self,
-        account_id: &str,
-        operation_id: &str,
-        result: Result<()>,
-    ) -> Result<OperationResult> {
-        match result {
-            Ok(()) => {
-                self.journal.finish(operation_id, OperationStatus::Succeeded, 0)?;
-                Ok(OperationResult {
-                    operation_id: operation_id.into(),
-                    status: OperationState::Succeeded,
-                    message: "Exchange confirmed the operation".into(),
-                })
-            }
-            Err(error) if error.envelope.code == ErrorCode::OutcomeUnknown => {
-                self.journal.finish(operation_id, OperationStatus::Unknown, 0)?;
-                Err(error.operation(operation_id))
-            }
-            Err(error) if error.envelope.code == ErrorCode::RemoteWipe => {
-                self.purge_account(account_id)?;
-                Err(error.operation(operation_id))
-            }
-            Err(error) => {
-                self.journal.finish(operation_id, OperationStatus::Failed, 0)?;
-                Err(error.operation(operation_id))
-            }
-        }
     }
 }
 

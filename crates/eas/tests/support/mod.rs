@@ -128,6 +128,12 @@ pub fn sync_response(status: u16, key: &str) -> eas_mail_protocol::Result<Vec<u8
 pub fn search_empty() -> eas_mail_protocol::Result<Vec<u8>> {
     let mut root = Element::new("Search", "Search");
     root.push(Element::text("Search", "Status", "1"));
+    let mut response = Element::new("Search", "Response");
+    let mut store = Element::new("Search", "Store");
+    store.push(Element::text("Search", "Status", "1"));
+    store.push(Element::text("Search", "Total", "0"));
+    response.push(store);
+    root.push(response);
     encode(&root)
 }
 
@@ -156,6 +162,8 @@ pub fn attachment_response() -> eas_mail_protocol::Result<Vec<u8>> {
 pub fn mutation_response() -> eas_mail_protocol::Result<Vec<u8>> {
     let mut root = Element::new("AirSync", "Sync");
     let mut collection = Element::new("AirSync", "Collection");
+    collection.push(Element::text("AirSync", "CollectionId", "inbox"));
+    collection.push(Element::text("AirSync", "Status", "1"));
     collection.push(Element::text("AirSync", "SyncKey", "10"));
     let mut collections = Element::new("AirSync", "Collections");
     collections.push(collection);
@@ -163,8 +171,8 @@ pub fn mutation_response() -> eas_mail_protocol::Result<Vec<u8>> {
     encode(&root)
 }
 
-pub fn compose_response(status: u16) -> eas_mail_protocol::Result<Vec<u8>> {
-    let mut root = Element::new("ComposeMail", "SendMail");
+pub fn compose_response(command: Command, status: u16) -> eas_mail_protocol::Result<Vec<u8>> {
+    let mut root = Element::new("ComposeMail", command.name());
     root.push(Element::text("ComposeMail", "Status", status.to_string()));
     encode(&root)
 }

@@ -1,7 +1,7 @@
-use crate::wbxml::{decode, encode};
+use crate::wbxml::encode;
 use crate::{EasError, MutationResult, Result};
 
-use super::tree::{descendant_text, element, integer, opaque_element, push_text};
+use super::tree::{element, opaque_element, push_text};
 
 /// Existing message reference used by SmartReply or SmartForward.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,15 +95,9 @@ pub fn build_smart(
     encode(&root)
 }
 
-/// Parses ComposeMail status. Empty successful responses map to status one.
+/// Parses a compose response; only an empty successful response confirms delivery.
 pub fn parse_compose(data: &[u8]) -> Result<MutationResult> {
-    if data.is_empty() {
-        return Ok(MutationResult { status: 1, sync_key: None, server_id: None });
-    }
-    let root = decode(data)?
-        .ok_or_else(|| EasError::Protocol("Exchange returned an empty compose response".into()))?;
-    let status = integer(descendant_text(&root, "ComposeMail", "Status"), 1);
-    Ok(MutationResult { status, sync_key: None, server_id: None })
+    super::compose_response::parse(data, None)
 }
 
 fn push_header(output: &mut String, name: &str, value: &str) {

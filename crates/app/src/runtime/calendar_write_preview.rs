@@ -116,8 +116,9 @@ impl Runtime {
         if input.scope.is_some_and(|scope| scope != crate::model::CalendarScope::Series) {
             return Err(validation("occurrence responses require a calendar occurrence reference"));
         }
-        let prepared = calendar_response_prepare::prepare(&mail, self.clock.now())?;
-        Ok(response_preview(&reference.account_id, &prepared.event, input))
+        let prepared = calendar_response_prepare::prepare(&mail.fields, self.clock.now())?;
+        Ok(response_preview(&reference.account_id, &prepared.event, input)
+            .field("Organizer", &prepared.organizer.email))
     }
 }
 
@@ -126,7 +127,20 @@ pub(super) fn response_preview(
     prepared: &PreparedEvent,
     input: &CalendarRespondInput,
 ) -> WritePreview {
-    event_preview("calendar_respond", account_id, prepared)
+    let event = &prepared.mutation.application;
+    WritePreview::new("calendar_respond", account_id.to_owned())
+        .field("Subject", &event.subject)
+        .field("UID", &event.uid)
+        .field("Starts at UTC", event.starts_at.to_rfc3339())
+        .field("Ends at UTC", event.ends_at.to_rfc3339())
+        .field(
+            "Scope",
+            if event.properties.instance_start.is_some() { "occurrence" } else { "series" },
+        )
+        .field(
+            "Original occurrence",
+            event.properties.instance_start.map(|value| value.to_rfc3339()).unwrap_or_default(),
+        )
         .field("Response", response_name(input.response))
         .field("Comment", &input.comment)
 }

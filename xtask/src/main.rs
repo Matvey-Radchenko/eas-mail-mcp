@@ -1,4 +1,5 @@
 mod command;
+mod contract;
 mod delivery;
 mod files;
 mod goldens;
@@ -29,6 +30,11 @@ enum Task {
     Goldens {
         #[arg(value_enum)]
         action: GoldenAction,
+    },
+    /// Verifies or intentionally updates the semantic MCP and CLI release contract.
+    Contract {
+        #[arg(value_enum)]
+        action: ContractAction,
     },
     /// Checks handwritten Rust file sizes.
     Files,
@@ -77,6 +83,15 @@ enum Task {
         /// Duration; release acceptance requires at least eight hours.
         #[arg(long, default_value_t = 8)]
         hours: u64,
+        /// Exact downloaded staged executable; omitted only for a local rehearsal.
+        #[arg(long)]
+        application: Option<PathBuf>,
+        /// Save progress and final acceptance evidence as JSON.
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// Apply the operator-approved four-hour exception for release 1.0.0 only.
+        #[arg(long, requires_all = ["application", "report"])]
+        four_hour_1_0_exception: bool,
     },
 }
 
@@ -84,6 +99,13 @@ enum Task {
 enum GoldenAction {
     Verify,
     Accept,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ContractAction {
+    Verify,
+    Accept,
+    Compatibility,
 }
 
 #[derive(Debug, Subcommand)]
@@ -114,6 +136,11 @@ fn main() -> anyhow::Result<()> {
         Task::Check => quality::check(root),
         Task::Test => quality::test(root),
         Task::Goldens { action } => goldens::run(root, matches!(action, GoldenAction::Accept)),
+        Task::Contract { action } => match action {
+            ContractAction::Verify => contract::run(root, false),
+            ContractAction::Accept => contract::run(root, true),
+            ContractAction::Compatibility => contract::compatibility(root),
+        },
         Task::Files => files::check(root),
         Task::Secrets => quality::secrets(root),
         Task::Profile { command } => match command {
@@ -132,6 +159,12 @@ fn main() -> anyhow::Result<()> {
         Task::Fuzz { seconds } => quality::fuzz(root, seconds),
         Task::Mutants => quality::mutants(root),
         Task::Perf { python } => performance::check(root, &python),
-        Task::Soak { hours } => soak::check(root, hours),
+        Task::Soak { hours, application, report, four_hour_1_0_exception } => soak::check(
+            root,
+            hours,
+            application.as_deref(),
+            report.as_deref(),
+            four_hour_1_0_exception,
+        ),
     }
 }

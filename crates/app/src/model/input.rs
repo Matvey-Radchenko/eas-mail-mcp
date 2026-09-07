@@ -27,11 +27,15 @@ pub struct MailListInput {
 }
 
 /// Input for server-side mailbox search.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MailSearchInput {
-    /// Search text sent to EAS Search.
+    /// Search text sent to EAS Search; omit only with both date bounds spanning at most 31 days.
+    #[serde(default)]
     pub query: String,
+    /// Exact filters over a bounded server candidate set; inspect response coverage.
+    #[serde(flatten)]
+    pub filters: super::MailSearchFilters,
     /// Account IDs; omitted means all enabled accounts.
     pub account_ids: Option<Vec<String>>,
     /// Opaque 15-minute snapshot cursor.
@@ -78,6 +82,18 @@ pub struct MarkReadInput {
     pub idempotency_key: String,
 }
 
+/// A local file to attach to an outgoing message. Bytes are read only for this operation.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OutgoingAttachmentInput {
+    /// Absolute path to a regular local file; links and reparse points are rejected.
+    pub path: String,
+    /// Optional display filename, at most 255 UTF-8 bytes; defaults to the path's filename.
+    pub filename: Option<String>,
+    /// Optional MIME type without parameters; defaults to application/octet-stream.
+    pub content_type: Option<String>,
+}
+
 /// Input for sending a plain-text message.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -97,6 +113,10 @@ pub struct MailSendInput {
     /// Plain-text body, maximum 50,000 Unicode scalar values.
     #[schemars(length(max = 50_000))]
     pub body: String,
+    /// Local attachments: at most 20 files and 25 MiB of raw bytes in total.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(length(max = 20))]
+    pub attachments: Vec<OutgoingAttachmentInput>,
     /// UUID used for operation idempotency.
     pub idempotency_key: String,
 }
@@ -113,6 +133,10 @@ pub struct MailReplyInput {
     /// Include original To and Cc recipients.
     #[serde(default)]
     pub reply_all: bool,
+    /// Local attachments: at most 20 files and 25 MiB of raw bytes in total.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(length(max = 20))]
+    pub attachments: Vec<OutgoingAttachmentInput>,
     /// UUID used for operation idempotency.
     pub idempotency_key: String,
 }
@@ -135,6 +159,10 @@ pub struct MailForwardInput {
     #[serde(default)]
     #[schemars(length(max = 50_000))]
     pub body: String,
+    /// Local attachments: at most 20 files and 25 MiB of raw bytes in total.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(length(max = 20))]
+    pub attachments: Vec<OutgoingAttachmentInput>,
     /// UUID used for operation idempotency.
     pub idempotency_key: String,
 }

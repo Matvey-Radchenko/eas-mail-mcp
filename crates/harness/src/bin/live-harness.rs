@@ -10,6 +10,8 @@ mod calendar_lifecycle;
 mod checks;
 #[path = "live_harness/support.rs"]
 mod support;
+#[path = "live_harness/write_outcome.rs"]
+mod write_outcome;
 
 use calendar_lifecycle::{LiveAccount, MeetingCoverage};
 use checks::check_account;

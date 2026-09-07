@@ -19,13 +19,17 @@ pub(super) enum OutputKind {
     People,
     MailList,
     MailDetail,
+    MailThread,
+    AutoReply,
     Attachments,
     Download,
     Availability,
     Slots,
+    RecurringSlots,
     CalendarList,
     CalendarEvent,
     Write,
+    Bulk,
 }
 
 pub(super) fn emit<T: Serialize>(

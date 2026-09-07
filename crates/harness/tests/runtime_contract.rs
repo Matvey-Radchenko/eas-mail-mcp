@@ -19,7 +19,7 @@ async fn read_contract_covers_selection_sync_search_and_calendar() -> anyhow::Re
         .await
         .data
         .ok_or_else(|| anyhow::anyhow!("folders_list returned no data"))?;
-    assert_eq!(folders.folders.len(), 2);
+    assert_eq!(folders.folders.len(), 4);
     assert!(folders.folders.iter().any(|folder| folder.role == "inbox"));
     assert!(folders.folders.iter().any(|folder| folder.role == "calendar"));
     assert_eq!(
@@ -36,6 +36,7 @@ async fn read_contract_covers_selection_sync_search_and_calendar() -> anyhow::Re
 
     let search = runtime
         .mail_search(MailSearchInput {
+            filters: Default::default(),
             query: "quarterly".into(),
             account_ids: None,
             cursor: None,
@@ -48,6 +49,7 @@ async fn read_contract_covers_selection_sync_search_and_calendar() -> anyhow::Re
     assert_eq!(
         runtime
             .mail_search(MailSearchInput {
+                filters: Default::default(),
                 query: "ignored for cursor".into(),
                 account_ids: None,
                 cursor,
@@ -61,6 +63,7 @@ async fn read_contract_covers_selection_sync_search_and_calendar() -> anyhow::Re
     assert_eq!(
         runtime
             .mail_search(MailSearchInput {
+                filters: Default::default(),
                 query: " ".into(),
                 account_ids: None,
                 cursor: None,
@@ -98,6 +101,8 @@ async fn exercise_calendar(runtime: &Runtime) -> anyhow::Result<()> {
             working_hours: working_hours(),
             duration_minutes: 60,
             allow_tentative: false,
+            participant_options: Vec::new(),
+            buffer_minutes: 0,
             limit: None,
         })
         .await;
@@ -210,6 +215,7 @@ async fn all_write_tools_return_durable_success() -> anyhow::Result<()> {
     assert_eq!(marked.data.map(|value| value.status), Some(OperationState::Succeeded));
     let replied = runtime
         .mail_reply(MailReplyInput {
+            attachments: Vec::new(),
             mail_ref: mail_ref.clone(),
             body: "Reply".into(),
             reply_all: true,
@@ -219,6 +225,7 @@ async fn all_write_tools_return_durable_success() -> anyhow::Result<()> {
     assert_eq!(replied.data.map(|value| value.status), Some(OperationState::Succeeded));
     let forwarded = runtime
         .mail_forward(MailForwardInput {
+            attachments: Vec::new(),
             mail_ref,
             to: vec!["recipient@example.com".into()],
             cc: Vec::new(),

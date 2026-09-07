@@ -218,6 +218,7 @@ fn list_input(cursor: Option<String>) -> MailListInput {
 
 fn send_input(subject: &str) -> MailSendInput {
     MailSendInput {
+        attachments: Vec::new(),
         account_id: "work".into(),
         to: vec!["self@example.invalid".into()],
         cc: Vec::new(),

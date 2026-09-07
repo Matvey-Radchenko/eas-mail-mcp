@@ -14,7 +14,11 @@ use rmcp::transport::{ConfigureCommandExt as _, TokioChildProcess};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-const TOOL_COUNT: usize = 22;
+#[path = "live_harness/artifact_outcome.rs"]
+mod artifact_outcome;
+#[expect(dead_code, reason = "artifact responses use JSON rather than typed ApiResponse warnings")]
+#[path = "live_harness/write_outcome.rs"]
+mod write_outcome;
 
 #[derive(Debug, Parser)]
 struct Arguments {
@@ -69,7 +73,10 @@ async fn main() -> Result<()> {
         .context("artifact MCP initialize timed out")??;
     let peer = client.peer().clone();
     let tools = peer.list_all_tools().await?;
-    anyhow::ensure!(tools.len() == TOOL_COUNT, "artifact exposed an unexpected tool count");
+    let expected = eas_mail_mcp_harness::contract::expected_tool_names()?;
+    let actual =
+        tools.iter().map(|tool| tool.name.to_string()).collect::<std::collections::BTreeSet<_>>();
+    anyhow::ensure!(actual == expected, "artifact exposed an unexpected tool contract");
 
     let accounts_response = call(&peer, "accounts_list", None).await?;
     let accounts = accounts_response
@@ -203,6 +210,9 @@ async fn personal_write(peer: &Peer<RoleClient>, account_id: &str) -> Result<()>
         Some(json!({ "event_ref": event_ref.clone(), "body_limit": 12000 })),
     )
     .await;
+    if checked.as_ref().is_err_and(write_outcome::must_stop) {
+        return checked.map(|_| ());
+    }
     let cleanup = call(
         peer,
         "calendar_delete",
@@ -212,6 +222,9 @@ async fn personal_write(peer: &Peer<RoleClient>, account_id: &str) -> Result<()>
         })),
     )
     .await;
+    if cleanup.as_ref().is_err_and(write_outcome::must_stop) {
+        return cleanup.map(|_| ());
+    }
     checked?;
     cleanup?;
     Ok(())
@@ -227,10 +240,8 @@ async fn call(peer: &Peer<RoleClient>, name: &str, input: Option<Value>) -> Resu
         .await
         .with_context(|| format!("{name} timed out"))??;
     let structured = result.structured_content.context("tool returned no structured content")?;
-    anyhow::ensure!(
-        structured.get("error").is_some_and(Value::is_null),
-        "{name} returned an error"
-    );
+    artifact_outcome::validate(name, &structured)?;
+    anyhow::ensure!(result.is_error != Some(true), "{name} returned an MCP tool error");
     Ok(structured)
 }
 
