@@ -132,6 +132,7 @@ pub(in crate::runtime) fn plan(
         ItemAction::Delete => false,
     });
     // The full pre-image participates in the CLI fingerprint, not in durable storage.
+    super::write_validation::validate(&plan, master)?;
     plan.preview = plan.preview.field("Current revision", super::revision(source)?);
     Ok(plan)
 }
@@ -210,9 +211,14 @@ fn whole(
                 crate::runtime::calendar_write_preview::attendee_list(&removed),
             );
         add_result_preview(plan, &update.event);
-        // Only newly invited attendees receive a Meeting Request; unchanged
-        // participants are never re-invited, mirroring native organizer clients.
-        notice(plan, STEP_NOTIFY_CURRENT, &update.event, added, CalendarMessageMethod::Request);
+        let recipients = super::notifications::recipients(old, &update.event);
+        notice(
+            plan,
+            STEP_NOTIFY_CURRENT,
+            &update.event,
+            recipients,
+            CalendarMessageMethod::Request,
+        );
         notice(plan, STEP_NOTIFY_REMOVED, old, removed, CalendarMessageMethod::Cancel);
         plan.steps
             .push(ItemStep { bit: STEP_ITEM, action: ItemAction::Update(Box::new(update.event)) });

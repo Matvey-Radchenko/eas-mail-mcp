@@ -21,6 +21,9 @@ pub fn build_sync(
     let mut collection = element("AirSync", "Collection");
     push_text(&mut collection, "AirSync", "SyncKey", sync_key);
     push_text(&mut collection, "AirSync", "CollectionId", collection_id);
+    if sync_key == "0" && kind == CollectionKind::Calendar {
+        collection.push(super::calendar_supported::properties());
+    }
     if sync_key != "0" {
         if kind == CollectionKind::Mail {
             push_text(&mut collection, "AirSync", "DeletesAsMoves", "1");

@@ -12,9 +12,8 @@ pub(super) fn append(parent: &mut Element, properties: &CalendarProperties) -> R
     if let Some(sensitivity) = properties.sensitivity {
         push_text(parent, "Calendar", "Sensitivity", sensitivity.to_string());
     }
-    // MS-ASCALE requires Categories to carry at least one Category child.
-    // Exchange emits an empty container on fetch but rejects one on write
-    // (Sync status 6), so an empty list is sent as inherited (omitted).
+    // Supported providers reject empty Categories containers in Change.
+    // Omit them on writes; Add separately rejects ambiguous empty overrides.
     if let Some(values) = properties.categories.as_ref().filter(|values| !values.is_empty()) {
         let mut categories = element("Calendar", "Categories");
         for category in values {
@@ -22,17 +21,8 @@ pub(super) fn append(parent: &mut Element, properties: &CalendarProperties) -> R
         }
         parent.push(categories);
     }
-    // Server-managed online meeting metadata is copied verbatim so full-item
-    // writes never drop the meeting link Exchange attached to the master.
-    if let Some(value) = properties.appointment_reply_time {
-        push_text(parent, "Calendar", "AppointmentReplyTime", format_eas_datetime(value));
-    }
-    if let Some(value) = &properties.online_meeting_conf_link {
-        push_text(parent, "Calendar", "OnlineMeetingConfLink", value.clone());
-    }
-    if let Some(value) = &properties.online_meeting_external_link {
-        push_text(parent, "Calendar", "OnlineMeetingExternalLink", value.clone());
-    }
+    // MS-ASCAL forbids server-managed links and AppointmentReplyTime in requests.
+    // Calendar Sync initialization ghosts them so Change preserves their values.
     if let Some(rule) = &properties.recurrence {
         rule.validate()?;
         let mut recurrence = element("Calendar", "Recurrence");
@@ -92,11 +82,16 @@ fn render_exception(value: &CalendarException) -> Result<Element> {
     bool_field(&mut output, "AllDayEvent", &fields.all_day);
     number_field(&mut output, "BusyStatus", &fields.busy_status);
     number_field(&mut output, "MeetingStatus", &fields.meeting_status);
-    // MS-ASCALE types Reminder as an unsigned integer; an empty element inside
-    // an Exception is malformed on write, so Value(None) stays unwritten and
-    // the occurrence keeps inheriting the master reminder.
-    if let Patch::Value(Some(reminder)) = &fields.reminder_minutes {
-        push_text(&mut output, "Calendar", "Reminder", reminder.to_string());
+    match fields.reminder_minutes {
+        Patch::Value(Some(reminder)) => {
+            push_text(&mut output, "Calendar", "Reminder", reminder.to_string());
+        }
+        Patch::Value(None) => {
+            return Err(EasError::InvalidConfiguration(
+                "EAS 14.1 cannot safely rewrite an explicitly disabled occurrence reminder".into(),
+            ));
+        }
+        Patch::Missing => {}
     }
     if let Patch::Value(body) = &fields.body {
         let mut container = element("AirSyncBase", "Body");
@@ -123,8 +118,4 @@ fn number_field<T: ToString>(parent: &mut Element, tag: &str, value: &Patch<T>) 
     if let Patch::Value(value) = value {
         push_text(parent, "Calendar", tag, value.to_string());
     }
-}
-
-fn format_eas_datetime(value: chrono::DateTime<chrono::Utc>) -> String {
-    value.format("%Y%m%dT%H%M%SZ").to_string()
 }

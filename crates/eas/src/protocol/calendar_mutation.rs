@@ -10,6 +10,27 @@ pub fn build_calendar_add(
     client_id: &str,
     item: &CalendarApplication,
 ) -> Result<Vec<u8>> {
+    if item.properties.appointment_reply_time.is_some()
+        || item.properties.online_meeting_conf_link.is_some()
+        || item.properties.online_meeting_external_link.is_some()
+    {
+        return Err(EasError::InvalidConfiguration(
+            "cannot copy server-managed online meeting or response metadata into a new series"
+                .into(),
+        ));
+    }
+    if item.properties.exceptions.iter().any(|exception| {
+        !exception.deleted
+            && exception
+                .fields
+                .properties
+                .as_ref()
+                .is_some_and(|properties| properties.categories.as_ref().is_some_and(Vec::is_empty))
+    }) {
+        return Err(EasError::InvalidConfiguration(
+            "cannot copy explicitly cleared occurrence categories into a new series".into(),
+        ));
+    }
     build_calendar_mutation(collection_id, sync_key, CalendarCommand::Add(client_id), Some(item))
 }
 
@@ -129,4 +150,26 @@ pub(super) fn attendees(values: &[crate::CalendarAttendee]) -> crate::wbxml::Ele
 
 fn eas_datetime(value: chrono::DateTime<chrono::Utc>) -> String {
     value.format("%Y%m%dT%H%M%SZ").to_string()
+}
+
+/// Builds an existing-item payload without replaying unchanged exceptions.
+/// MS-ASCMD 2.2.3.24 preserves omitted exceptions; changed exceptions clear
+/// empty categories by omission instead of sending a rejected empty container.
+pub fn calendar_change_delta(
+    previous: &crate::CalendarProperties,
+    item: &CalendarApplication,
+) -> CalendarApplication {
+    let mut payload = item.clone();
+    payload.properties.exceptions.retain_mut(|exception| {
+        if previous.exceptions.iter().any(|prior| prior == exception) {
+            return false;
+        }
+        if let Some(properties) = &mut exception.fields.properties
+            && properties.categories.as_ref().is_some_and(Vec::is_empty)
+        {
+            properties.categories = None;
+        }
+        true
+    });
+    payload
 }

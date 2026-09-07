@@ -1,6 +1,7 @@
 pub(super) mod edit;
 mod exception_patch;
 mod exceptions;
+mod notifications;
 mod occurrence;
 pub(super) mod preview;
 pub(super) mod response;
@@ -8,6 +9,7 @@ pub(super) mod rule;
 mod split;
 #[cfg(test)]
 mod tests;
+mod write_validation;
 
 pub(super) use exceptions::validate;
 pub(super) use occurrence::{selected, validate_member};

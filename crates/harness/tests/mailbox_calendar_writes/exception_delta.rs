@@ -83,7 +83,7 @@ async fn editing_an_existing_exception_deletes_empty_categories_without_replayin
     Ok(())
 }
 
-async fn verify_change(
+pub(super) async fn verify_change(
     response: Vec<u8>,
     changed: CalendarApplication,
     delta: CalendarApplication,
@@ -123,11 +123,23 @@ async fn verify_change(
     Ok(())
 }
 
-fn item_response(item: &CalendarApplication) -> anyhow::Result<Vec<u8>> {
-    let add = decode(&build_calendar_add("calendar", "key", "client", item)?)?
+pub(super) fn item_response(item: &CalendarApplication) -> anyhow::Result<Vec<u8>> {
+    let add = decode(&build_calendar_change("calendar", "key", "server", item)?)?
         .context("missing synthetic add")?;
     let mut properties =
         add.descendant("AirSync", "ApplicationData").context("missing fixture data")?.clone();
+    // Server responses can contain empty containers that clients must not echo.
+    for node in &mut properties.content {
+        if let eas_mail_protocol::wbxml::Node::Element(exceptions) = node
+            && exceptions.name == "Exceptions"
+        {
+            for node in &mut exceptions.content {
+                if let eas_mail_protocol::wbxml::Node::Element(exception) = node {
+                    exception.push(Element::new("Calendar", "Categories"));
+                }
+            }
+        }
+    }
     properties.namespace = "ItemOperations".into();
     properties.name = "Properties".into();
     let mut fetch = Element::new("ItemOperations", "Fetch");

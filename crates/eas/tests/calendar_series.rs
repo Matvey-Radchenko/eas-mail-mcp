@@ -147,7 +147,7 @@ fn unsupported_fields_do_not_break_reads_but_block_full_writes() -> anyhow::Resu
 }
 
 #[test]
-fn online_meeting_metadata_round_trips_through_series_change() -> anyhow::Result<()> {
+fn online_meeting_metadata_is_readable_but_never_sent_in_series_change() -> anyhow::Result<()> {
     let mut source = Element::new("ItemOperations", "Properties");
     source.push(Element::text(
         "Calendar",
@@ -186,16 +186,10 @@ fn online_meeting_metadata_round_trips_through_series_change() -> anyhow::Result
     let mut round = fetch(rewritten)?;
     let properties = round.properties.take().context("write metadata")?;
     assert!(properties.can_write());
-    // The rewritten master still carries the server-managed online meeting metadata.
-    assert_eq!(
-        properties.online_meeting_external_link.as_deref(),
-        Some("https://example.invalid/meeting")
-    );
-    assert_eq!(
-        properties.online_meeting_conf_link.as_deref(),
-        Some("conf://example.invalid/meeting")
-    );
-    assert_eq!(properties.appointment_reply_time, Some(time("2026-08-24T10:00:00Z")?));
+    assert!(properties.online_meeting_external_link.is_none());
+    assert!(properties.online_meeting_conf_link.is_none());
+    assert!(properties.appointment_reply_time.is_none());
+    assert!(build_calendar_add("calendar", "key", "new", &item).is_err());
     // Master-only metadata never leaks into exception objects.
     let exception = properties.exceptions.first().context("exception")?;
     assert!(exception.fields.properties.as_ref().is_none_or(|value| {
@@ -237,7 +231,7 @@ fn empty_server_managed_exception_fields_do_not_block_series_writes() -> anyhow:
 }
 
 #[test]
-fn exception_sensitivity_overrides_round_trip_and_empty_categories_inherit() -> anyhow::Result<()> {
+fn exception_changes_keep_sensitivity_and_omit_empty_category_containers() -> anyhow::Result<()> {
     let mut item = application()?;
     item.properties.sensitivity = Some(2);
     item.properties.categories = Some(vec!["Private category".into()]);
@@ -287,9 +281,9 @@ fn exception_sensitivity_overrides_round_trip_and_empty_categories_inherit() -> 
         .as_ref()
         .context("properties")?;
     assert_eq!(cleared.sensitivity, Some(0));
-    // An empty category list is not representable in MS-ASCALE (Categories
-    // requires a Category child); it is written as inherited rather than as
-    // an empty container Exchange would reject with Sync status 6.
+    // Change omits the empty category container rejected by supported providers.
+    // Add must reject this ambiguous override before creating a new series.
+    assert!(build_calendar_add("calendar", "key", "new", &item).is_err());
     assert_eq!(cleared.categories, None);
     Ok(())
 }
@@ -321,13 +315,13 @@ fn server_emitted_empty_exception_containers_are_not_written_back() -> anyhow::R
     let recurrence = item.properties.recurrence.clone();
     item.properties = parsed;
     item.properties.recurrence = recurrence;
-    let body = build_calendar_change("calendar", "key", "server", &item)?;
-    let tree = decode(&body)?.context("request")?;
-    let rewritten =
-        tree.descendant("AirSync", "ApplicationData").context("application data")?.clone();
-    let exceptions = rewritten.descendant("Calendar", "Exceptions").context("exceptions")?;
-    assert!(exceptions.descendants("Calendar", "Categories").is_empty());
-    assert!(exceptions.descendants("Calendar", "Reminder").is_empty());
+    // An unchanged exception can be omitted, but rewriting or copying its
+    // explicit disabled reminder must fail before it silently inherits 15 minutes.
+    assert!(build_calendar_change("calendar", "key", "server", &item).is_err());
+    assert!(build_calendar_add("calendar", "key", "new", &item).is_err());
+    let delta = eas_mail_protocol::protocol::calendar_change_delta(&item.properties, &item);
+    assert!(delta.properties.exceptions.is_empty());
+    assert!(build_calendar_change("calendar", "key", "server", &delta).is_ok());
     Ok(())
 }
 

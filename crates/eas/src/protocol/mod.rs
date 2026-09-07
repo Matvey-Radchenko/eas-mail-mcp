@@ -7,7 +7,9 @@ pub(crate) use calendar_mutation_response::parse_for as parse_calendar_mutation_
 mod calendar_properties;
 mod calendar_properties_write;
 mod calendar_recurrence;
+mod calendar_supported;
 mod calendar_validation;
+pub use calendar_mutation::calendar_change_delta;
 mod mutation_response;
 pub use calendar_properties::exception_fields;
 mod compose;

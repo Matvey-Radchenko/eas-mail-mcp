@@ -5,6 +5,8 @@ mod support;
 mod agenda_key;
 #[path = "mailbox_calendar_writes/exception_delta.rs"]
 mod exception_delta;
+#[path = "mailbox_calendar_writes/online_metadata.rs"]
+mod online_metadata;
 
 use chrono::{TimeZone as _, Utc};
 use eas_mail_mcp::backend::{

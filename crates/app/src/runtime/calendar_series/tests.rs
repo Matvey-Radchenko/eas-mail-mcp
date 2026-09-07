@@ -317,3 +317,43 @@ fn source(item: &CalendarApplication) -> BackendEvent {
         fields: eas_mail_protocol::CalendarFields::from(item),
     }
 }
+
+#[test]
+fn mixed_content_edits_and_exception_only_promotions_notify_the_right_people() -> anyhow::Result<()>
+{
+    let old = prepared(series_meeting(&["a@example.invalid", "b@example.invalid"])?)?;
+    let mut new = prepared(series_meeting(&[
+        "a@example.invalid",
+        "b@example.invalid",
+        "c@example.invalid",
+    ])?)?;
+    new.mutation.application.location = "New room".into();
+    let recipients = notifications::recipients(&old, &new);
+    assert_eq!(
+        recipients.iter().map(|value| value.email.as_str()).collect::<Vec<_>>(),
+        ["a@example.invalid", "b@example.invalid", "c@example.invalid"]
+    );
+
+    let mut old = old;
+    old.mutation.application.properties.exceptions.push(eas_mail_protocol::CalendarException {
+        original_start: old.mutation.application.starts_at,
+        deleted: false,
+        fields: eas_mail_protocol::CalendarFields {
+            attendees: Patch::Value(vec![CalendarAttendee {
+                email: "c@example.invalid".into(),
+                name: String::new(),
+                attendee_type: 1,
+                attendee_status: 0,
+            }]),
+            ..Default::default()
+        },
+    });
+    new.mutation.application.location.clone_from(&old.mutation.application.location);
+    new.mutation.application.properties.clone_from(&old.mutation.application.properties);
+    let recipients = notifications::recipients(&old, &new);
+    assert_eq!(
+        recipients.iter().map(|value| value.email.as_str()).collect::<Vec<_>>(),
+        ["c@example.invalid"]
+    );
+    Ok(())
+}
