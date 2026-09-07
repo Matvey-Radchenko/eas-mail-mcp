@@ -66,6 +66,9 @@ except for the operator-approved one-hour maximum for 1.0.0 recorded in its
 superseded the earlier four-hour allowance. The one-hour run uses a separately
 derived validation harness; the accepted application's/xtask's CLI and package
 bytes are unchanged. No one-hour xtask flag is introduced by this documentation.
+The operator also waived the repeat soak for the calendar-only 1.0.1 patch,
+as recorded in its [acceptance document](docs/releases/1.0.1-acceptance.md).
+This exception does not change the normal gate for subsequent releases.
 The exact npm candidate must be installed and accepted before staged packages
 are approved. Follow [the npm release process](docs/releasing.md).
 

@@ -89,7 +89,10 @@ The derived report uses `release-1.0.0-operator-approved-one-hour`. No failed or
 interrupted duration is accumulated. No new cycle starts after the deadline;
 an in-flight cycle that cannot finish within it fails acceptance. Hash, warning,
 read, and shutdown checks remain in force. The normal eight-hour requirement
-remains unchanged for later releases.
+remains unchanged for later releases except for explicitly recorded operator decisions.
+For the calendar-only 1.0.1 patch, the owner waived the repeat soak after
+automated, live-read and package acceptance. No soak was run or marked as passed;
+see the [1.0.1 acceptance record](releases/1.0.1-acceptance.md).
 
 Use the actual extracted candidate path (`eas-mail-mcp.exe` on Windows).
 `--application` prevents rebuilding the application. The report records the
