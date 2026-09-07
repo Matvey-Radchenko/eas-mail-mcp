@@ -237,7 +237,7 @@ fn empty_server_managed_exception_fields_do_not_block_series_writes() -> anyhow:
 }
 
 #[test]
-fn absent_and_cleared_exception_categories_and_sensitivity_are_distinct() -> anyhow::Result<()> {
+fn exception_sensitivity_overrides_round_trip_and_empty_categories_inherit() -> anyhow::Result<()> {
     let mut item = application()?;
     item.properties.sensitivity = Some(2);
     item.properties.categories = Some(vec!["Private category".into()]);
@@ -287,7 +287,47 @@ fn absent_and_cleared_exception_categories_and_sensitivity_are_distinct() -> any
         .as_ref()
         .context("properties")?;
     assert_eq!(cleared.sensitivity, Some(0));
-    assert_eq!(cleared.categories, Some(Vec::new()));
+    // An empty category list is not representable in MS-ASCALE (Categories
+    // requires a Category child); it is written as inherited rather than as
+    // an empty container Exchange would reject with Sync status 6.
+    assert_eq!(cleared.categories, None);
+    Ok(())
+}
+
+#[test]
+fn server_emitted_empty_exception_containers_are_not_written_back() -> anyhow::Result<()> {
+    // Exchange itself sends empty Categories and Reminder elements inside
+    // exceptions; echoing either back is malformed and fails the whole Sync.
+    let mut exception = Element::new("Calendar", "Exception");
+    exception.push(Element::text("Calendar", "ExceptionStartTime", "20260825T100000Z"));
+    exception.push(Element::text("Calendar", "Subject", "Override"));
+    exception.push(Element::new("Calendar", "Categories"));
+    exception.push(Element::new("Calendar", "Reminder"));
+    let mut exceptions = Element::new("Calendar", "Exceptions");
+    exceptions.push(exception);
+    let mut source = Element::new("ItemOperations", "Properties");
+    source.push(exceptions);
+    let mut fields = fetch(source)?;
+    let parsed = fields.properties.take().context("properties")?;
+    assert!(parsed.can_write());
+    let override_fields = &parsed.exceptions.first().context("override")?.fields;
+    assert_eq!(
+        override_fields.properties.as_ref().context("properties")?.categories,
+        Some(Vec::new())
+    );
+    assert_eq!(override_fields.reminder_minutes, Patch::Value(None));
+
+    let mut item = application()?;
+    let recurrence = item.properties.recurrence.clone();
+    item.properties = parsed;
+    item.properties.recurrence = recurrence;
+    let body = build_calendar_change("calendar", "key", "server", &item)?;
+    let tree = decode(&body)?.context("request")?;
+    let rewritten =
+        tree.descendant("AirSync", "ApplicationData").context("application data")?.clone();
+    let exceptions = rewritten.descendant("Calendar", "Exceptions").context("exceptions")?;
+    assert!(exceptions.descendants("Calendar", "Categories").is_empty());
+    assert!(exceptions.descendants("Calendar", "Reminder").is_empty());
     Ok(())
 }
 

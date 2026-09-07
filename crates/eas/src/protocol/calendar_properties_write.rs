@@ -12,7 +12,10 @@ pub(super) fn append(parent: &mut Element, properties: &CalendarProperties) -> R
     if let Some(sensitivity) = properties.sensitivity {
         push_text(parent, "Calendar", "Sensitivity", sensitivity.to_string());
     }
-    if let Some(values) = &properties.categories {
+    // MS-ASCALE requires Categories to carry at least one Category child.
+    // Exchange emits an empty container on fetch but rejects one on write
+    // (Sync status 6), so an empty list is sent as inherited (omitted).
+    if let Some(values) = properties.categories.as_ref().filter(|values| !values.is_empty()) {
         let mut categories = element("Calendar", "Categories");
         for category in values {
             push_text(&mut categories, "Calendar", "Category", category);
@@ -89,7 +92,12 @@ fn render_exception(value: &CalendarException) -> Result<Element> {
     bool_field(&mut output, "AllDayEvent", &fields.all_day);
     number_field(&mut output, "BusyStatus", &fields.busy_status);
     number_field(&mut output, "MeetingStatus", &fields.meeting_status);
-    optional_number_field(&mut output, "Reminder", &fields.reminder_minutes);
+    // MS-ASCALE types Reminder as an unsigned integer; an empty element inside
+    // an Exception is malformed on write, so Value(None) stays unwritten and
+    // the occurrence keeps inheriting the master reminder.
+    if let Patch::Value(Some(reminder)) = &fields.reminder_minutes {
+        push_text(&mut output, "Calendar", "Reminder", reminder.to_string());
+    }
     if let Patch::Value(body) = &fields.body {
         let mut container = element("AirSyncBase", "Body");
         push_text(&mut container, "AirSyncBase", "Type", "1");
@@ -114,14 +122,6 @@ fn bool_field(parent: &mut Element, tag: &str, value: &Patch<bool>) {
 fn number_field<T: ToString>(parent: &mut Element, tag: &str, value: &Patch<T>) {
     if let Patch::Value(value) = value {
         push_text(parent, "Calendar", tag, value.to_string());
-    }
-}
-
-fn optional_number_field<T: ToString>(parent: &mut Element, tag: &str, value: &Patch<Option<T>>) {
-    match value {
-        Patch::Value(Some(value)) => push_text(parent, "Calendar", tag, value.to_string()),
-        Patch::Value(None) => parent.push(element("Calendar", tag)),
-        Patch::Missing => {}
     }
 }
 
