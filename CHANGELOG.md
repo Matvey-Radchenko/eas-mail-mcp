@@ -1,8 +1,15 @@
 # Changelog
 
-## Unreleased
+## 1.0.1
 
 ### Fixed
+
+- Read zero-duration calendar events and recurring occurrences without failing
+  the agenda; retain positive-duration validation for edits.
+- Preserve server-managed online meeting links and unchanged series exceptions
+  when updating attendees. Notify only affected attendees for roster-only
+  changes, and all current attendees when meeting content or timing changes.
+- Reject unsafe exception reminder rewrites before any Exchange mutation.
 
 - Accept forwarded recurring invitations through mail references; keep
   occurrence responses scoped to Calendar occurrence references.
@@ -11,7 +18,7 @@
   organizer and occurrence identity without echoing sibling exceptions.
 - Explain Exchange MeetingResponse rejections and missing organizer metadata.
 
-## 1.0.0 — unreleased
+## 1.0.0
 
 ### Added
 

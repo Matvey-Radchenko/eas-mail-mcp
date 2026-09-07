@@ -17,6 +17,7 @@ const harness = resolve(harnessArgument);
 const launcher = join(prefix, 'node_modules', 'eas-mail-mcp', 'bin', 'eas-mail-mcp.js');
 const contract = JSON.parse(readFileSync(new URL('../contracts/v1.0.json', import.meta.url)));
 const expectedNames = Object.keys(contract.mcp).sort();
+const expectedVersion = JSON.parse(readFileSync(new URL('../npm/eas-mail-mcp/package.json', import.meta.url))).version;
 const state = mkdtempSync(join(tmpdir(), 'eas-mail-acceptance-'));
 const env = { ...process.env, EAS_MAIL_HARNESS_STATE_DIR: state };
 
@@ -36,7 +37,7 @@ async function session(full) {
   const { request } = rpc;
   try {
     await request('initialize', { protocolVersion: '2025-03-26', capabilities: {},
-      clientInfo: { name: 'windows-synthetic-acceptance', version: '1.0.0' } });
+      clientInfo: { name: 'windows-synthetic-acceptance', version: expectedVersion } });
     rpc.notify('notifications/initialized');
     if (full) {
       const tools = await request('tools/list', {});
@@ -62,7 +63,7 @@ async function session(full) {
 
 try {
   const version = run(process.execPath, [launcher, '--version']);
-  assert.equal(version, 'eas-mail-mcp 1.0.0');
+  assert.equal(version, `eas-mail-mcp ${expectedVersion}`);
   const shim = npmShimCommand(join(prefix, 'eas-mail-mcp.cmd'), '--version');
   assert.equal(run(shim.binary, shim.args, { windowsVerbatimArguments: shim.windowsVerbatimArguments }), version);
   const native = run(process.execPath, [launcher, 'native-path']);
@@ -77,7 +78,7 @@ try {
   assert.equal(changed.data.status, 'succeeded');
   for (let cycle = 0; cycle < 24; cycle++) await session(cycle === 0);
   process.stdout.write(JSON.stringify({
-    platform: process.platform, architecture: process.arch, version: '1.0.0',
+    platform: process.platform, architecture: process.arch, version: expectedVersion,
     native_sha256: hash(native), cli_harness_sha256: hash(cli),
     mcp_harness_sha256: hash(join(harness, 'harness-server.exe')),
     tool_count: expectedNames.length, clean_stdio_sessions: 24,
