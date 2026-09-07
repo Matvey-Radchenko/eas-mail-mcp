@@ -4,8 +4,11 @@ use serde_json::{Value, json};
 
 use super::*;
 use crate::model::{CalendarCreateInput, CalendarScope, CalendarUpdateInput};
+use crate::runtime::calendar_mime::CalendarMessageMethod;
 use crate::runtime::calendar_prepare;
 use crate::runtime::calendar_series::edit::{EditInput, ItemAction};
+use crate::runtime::calendar_write_result::{STEP_NOTIFY_CURRENT, STEP_NOTIFY_REMOVED};
+use eas_mail_protocol::CalendarAttendee;
 
 #[test]
 fn repeat_patterns_endings_and_dst_keep_local_identity() -> anyhow::Result<()> {
@@ -217,6 +220,80 @@ fn numbered_dates_clamp_to_month_end_without_skipping_occurrences() -> anyhow::R
         assert!(validate_member(&item, instant(&format!("{after_end}T10:00:00Z"))?).is_err());
     }
     Ok(())
+}
+
+#[test]
+fn whole_series_updates_notify_only_added_and_removed_attendees() -> anyhow::Result<()> {
+    let item = series_meeting(&["a@example.invalid", "b@example.invalid"])?;
+    let source = source(&item);
+
+    // Adding one attendee invites only the new participant.
+    let plan = series_update_plan(
+        &source,
+        &["a@example.invalid", "b@example.invalid", "c@example.invalid"],
+    )?;
+    assert_eq!(plan.notices.len(), 1);
+    let notice = plan.notices.first().context("invite notice")?;
+    assert_eq!(notice.bit, STEP_NOTIFY_CURRENT);
+    assert!(matches!(notice.method, CalendarMessageMethod::Request));
+    assert_eq!(notice_recipients(notice), ["c@example.invalid"]);
+
+    // Removing one attendee cancels only for the removed participant.
+    let plan = series_update_plan(&source, &["a@example.invalid"])?;
+    assert_eq!(plan.notices.len(), 1);
+    let notice = plan.notices.first().context("cancel notice")?;
+    assert_eq!(notice.bit, STEP_NOTIFY_REMOVED);
+    assert!(matches!(notice.method, CalendarMessageMethod::Cancel));
+    assert_eq!(notice_recipients(notice), ["b@example.invalid"]);
+
+    // A roster-preserving update never re-invites existing participants.
+    let plan = series_update_plan(&source, &["b@example.invalid", "a@example.invalid"])?;
+    assert!(plan.notices.is_empty());
+    assert!(matches!(plan.steps.first().map(|step| &step.action), Some(ItemAction::Update(_))));
+    Ok(())
+}
+
+fn notice_recipients(notice: &edit::Notice) -> Vec<&str> {
+    notice.recipients.iter().map(|value| value.email.as_str()).collect()
+}
+
+fn series_meeting(emails: &[&str]) -> anyhow::Result<CalendarApplication> {
+    let input = create(json!({"frequency":"daily","end":{"mode":"count","count":5}}))?;
+    let mut prepared = calendar_prepare::create(
+        &input,
+        DateTime::UNIX_EPOCH,
+        "uid".into(),
+        "work@example.invalid",
+    )?;
+    prepared.mutation.application.attendees = emails
+        .iter()
+        .map(|email| CalendarAttendee {
+            email: (*email).into(),
+            name: String::new(),
+            attendee_type: 1,
+            attendee_status: 0,
+        })
+        .collect();
+    calendar_prepare::refresh_organizer_status(&mut prepared.mutation.application);
+    Ok(prepared.mutation.application)
+}
+
+fn series_update_plan(source: &BackendEvent, attendees: &[&str]) -> anyhow::Result<edit::EditPlan> {
+    let input: CalendarUpdateInput = serde_json::from_value(json!({
+        "event_ref": "unused",
+        "scope": "series",
+        "attendees": attendees
+            .iter()
+            .map(|email| json!({"email": email, "role": "required"}))
+            .collect::<Vec<_>>(),
+        "idempotency_key": "11111111-2222-4333-8444-555555555556",
+    }))?;
+    Ok(edit::plan(
+        &EditInput::Update(Box::new(input)),
+        source,
+        DateTime::UNIX_EPOCH,
+        "work@example.invalid",
+    )?)
 }
 
 fn create(recurrence: Value) -> anyhow::Result<CalendarCreateInput> {

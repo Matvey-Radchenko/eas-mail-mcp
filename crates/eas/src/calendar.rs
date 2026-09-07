@@ -95,6 +95,12 @@ pub struct CalendarProperties {
     pub sensitivity: Option<u8>,
     /// Present user categories; an empty list explicitly clears inherited categories.
     pub categories: Option<Vec<String>>,
+    /// Organizer meeting response time, retained verbatim across writes.
+    pub appointment_reply_time: Option<DateTime<Utc>>,
+    /// Server-managed conferencing link, retained verbatim across writes.
+    pub online_meeting_conf_link: Option<String>,
+    /// Server-managed external online meeting link, retained verbatim across writes.
+    pub online_meeting_external_link: Option<String>,
     /// A field could not be preserved; reads remain possible, writes must fail.
     pub unsupported: bool,
 }

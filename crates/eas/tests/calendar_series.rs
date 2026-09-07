@@ -140,13 +140,89 @@ fn recurring_add_matches_the_reviewable_wire_golden() -> anyhow::Result<()> {
 #[test]
 fn unsupported_fields_do_not_break_reads_but_block_full_writes() -> anyhow::Result<()> {
     let mut properties = Element::new("ItemOperations", "Properties");
-    properties.push(Element::text(
+    properties.push(Element::text("Calendar", "DisallowNewTimeProposal", "1"));
+    let fields = fetch(properties)?;
+    assert!(!fields.properties.context("properties")?.can_write());
+    Ok(())
+}
+
+#[test]
+fn online_meeting_metadata_round_trips_through_series_change() -> anyhow::Result<()> {
+    let mut source = Element::new("ItemOperations", "Properties");
+    source.push(Element::text(
         "Calendar",
         "OnlineMeetingExternalLink",
         "https://example.invalid/meeting",
     ));
-    let fields = fetch(properties)?;
-    assert!(!fields.properties.context("properties")?.can_write());
+    source.push(Element::text(
+        "Calendar",
+        "OnlineMeetingConfLink",
+        "conf://example.invalid/meeting",
+    ));
+    source.push(Element::text("Calendar", "AppointmentReplyTime", "20260824T100000Z"));
+    let mut fields = fetch(source)?;
+    let parsed = fields.properties.take().context("properties")?;
+    assert!(parsed.can_write());
+    assert_eq!(
+        parsed.online_meeting_external_link.as_deref(),
+        Some("https://example.invalid/meeting")
+    );
+    assert_eq!(parsed.online_meeting_conf_link.as_deref(), Some("conf://example.invalid/meeting"));
+    assert_eq!(parsed.appointment_reply_time, Some(time("2026-08-24T10:00:00Z")?));
+
+    let mut item = application()?;
+    let recurrence = item.properties.recurrence.clone();
+    item.properties = parsed;
+    item.properties.recurrence = recurrence;
+    item.properties.exceptions.push(CalendarException {
+        original_start: time("2026-08-26T10:00:00Z")?,
+        deleted: true,
+        fields: CalendarFields::default(),
+    });
+    let body = build_calendar_change("calendar", "key", "server", &item)?;
+    let tree = decode(&body)?.context("request")?;
+    let rewritten =
+        tree.descendant("AirSync", "ApplicationData").context("application data")?.clone();
+    let mut round = fetch(rewritten)?;
+    let properties = round.properties.take().context("write metadata")?;
+    assert!(properties.can_write());
+    // The rewritten master still carries the server-managed online meeting metadata.
+    assert_eq!(
+        properties.online_meeting_external_link.as_deref(),
+        Some("https://example.invalid/meeting")
+    );
+    assert_eq!(
+        properties.online_meeting_conf_link.as_deref(),
+        Some("conf://example.invalid/meeting")
+    );
+    assert_eq!(properties.appointment_reply_time, Some(time("2026-08-24T10:00:00Z")?));
+    // Master-only metadata never leaks into exception objects.
+    let exception = properties.exceptions.first().context("exception")?;
+    assert!(exception.fields.properties.as_ref().is_none_or(|value| {
+        value.online_meeting_external_link.is_none()
+            && value.online_meeting_conf_link.is_none()
+            && value.appointment_reply_time.is_none()
+    }));
+    Ok(())
+}
+
+#[test]
+fn exception_online_meeting_metadata_still_blocks_series_writes() -> anyhow::Result<()> {
+    for (link, expect_write) in [("https://example.invalid/meeting", false), ("", true)] {
+        let mut exception = Element::new("Calendar", "Exception");
+        exception.push(Element::text("Calendar", "ExceptionStartTime", "20260825T100000Z"));
+        exception.push(Element::text("Calendar", "OnlineMeetingConfLink", link));
+        let mut exceptions = Element::new("Calendar", "Exceptions");
+        exceptions.push(exception);
+        let mut properties = Element::new("ItemOperations", "Properties");
+        properties.push(exceptions);
+        let fields = fetch(properties)?;
+        assert_eq!(
+            fields.properties.context("properties")?.can_write(),
+            expect_write,
+            "link {link:?}"
+        );
+    }
     Ok(())
 }
 
@@ -224,6 +300,7 @@ fn malformed_calendar_scalars_attendees_and_nested_rules_are_readable_but_not_wr
         ("StartTime", "bad"),
         ("Sensitivity", "4"),
         ("ResponseType", "9"),
+        ("AppointmentReplyTime", "bad"),
     ] {
         let mut fields = Element::new("ItemOperations", "Properties");
         fields.push(Element::text("Calendar", name, value));

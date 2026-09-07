@@ -53,6 +53,18 @@ pub(super) fn parse(parent: &Element) -> CalendarProperties {
                         "Recurrence" | "Exceptions" | "TimeZone" | "UID"
                     )
             });
+            // Online meeting metadata is retained on the master only; an exception
+            // carrying it cannot be rewritten without dropping it, so fail closed.
+            properties.unsupported |= exception.children().any(|child| {
+                child.namespace == "Calendar"
+                    && matches!(
+                        child.name.as_str(),
+                        "AppointmentReplyTime"
+                            | "OnlineMeetingConfLink"
+                            | "OnlineMeetingExternalLink"
+                    )
+                    && !child.text_content().is_empty()
+            });
             fields.properties = Some(properties);
             output.exceptions.push(CalendarException {
                 original_start: start,
@@ -124,6 +136,23 @@ fn common(parent: &Element) -> CalendarProperties {
             values.push(child.text_content());
         }
         output.categories = Some(values);
+    }
+    if let Some(value) = direct_text(parent, "Calendar", "OnlineMeetingConfLink")
+        && !value.is_empty()
+    {
+        output.online_meeting_conf_link = Some(value);
+    }
+    if let Some(value) = direct_text(parent, "Calendar", "OnlineMeetingExternalLink")
+        && !value.is_empty()
+    {
+        output.online_meeting_external_link = Some(value);
+    }
+    match direct_text(parent, "Calendar", "AppointmentReplyTime") {
+        Some(value) if !value.is_empty() => match parse_datetime(Some(value)) {
+            Some(parsed) => output.appointment_reply_time = Some(parsed),
+            None => output.unsupported = true,
+        },
+        _ => {}
     }
     if let Some(body) = parent.child("AirSyncBase", "Body") {
         output.unsupported |= direct_text(body, "AirSyncBase", "Truncated").as_deref() == Some("1");

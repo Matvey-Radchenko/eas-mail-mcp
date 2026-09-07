@@ -19,6 +19,17 @@ pub(super) fn append(parent: &mut Element, properties: &CalendarProperties) -> R
         }
         parent.push(categories);
     }
+    // Server-managed online meeting metadata is copied verbatim so full-item
+    // writes never drop the meeting link Exchange attached to the master.
+    if let Some(value) = properties.appointment_reply_time {
+        push_text(parent, "Calendar", "AppointmentReplyTime", format_eas_datetime(value));
+    }
+    if let Some(value) = &properties.online_meeting_conf_link {
+        push_text(parent, "Calendar", "OnlineMeetingConfLink", value.clone());
+    }
+    if let Some(value) = &properties.online_meeting_external_link {
+        push_text(parent, "Calendar", "OnlineMeetingExternalLink", value.clone());
+    }
     if let Some(rule) = &properties.recurrence {
         rule.validate()?;
         let mut recurrence = element("Calendar", "Recurrence");
@@ -112,4 +123,8 @@ fn optional_number_field<T: ToString>(parent: &mut Element, tag: &str, value: &P
         Patch::Value(None) => parent.push(element("Calendar", tag)),
         Patch::Missing => {}
     }
+}
+
+fn format_eas_datetime(value: chrono::DateTime<chrono::Utc>) -> String {
+    value.format("%Y%m%dT%H%M%SZ").to_string()
 }

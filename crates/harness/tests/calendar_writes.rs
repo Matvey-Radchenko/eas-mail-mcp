@@ -117,7 +117,8 @@ async fn completed_update_replays_with_a_portable_reference_and_detects_conflict
     let repeated = runtime.calendar_update(input.clone()).await;
     assert_eq!(first.data.map(|result| result.status), Some(CalendarOperationState::Succeeded));
     assert_eq!(repeated.data.map(|result| result.status), Some(CalendarOperationState::Succeeded));
-    assert_eq!(backend.operations()?, ["calendar_update_item", "calendar_send"]);
+    // A roster-preserving update changes the item but never re-invites attendees.
+    assert_eq!(backend.operations()?, ["calendar_update_item"]);
 
     let mut changed = input;
     changed.subject = Some("Different".into());

@@ -27,11 +27,6 @@ pub(super) fn fields_supported(parent: &Element) -> bool {
             return false;
         }
     }
-    for name in ["AppointmentReplyTime", "OnlineMeetingConfLink", "OnlineMeetingExternalLink"] {
-        if direct_text(parent, "Calendar", name).is_some_and(|value| !value.is_empty()) {
-            return false;
-        }
-    }
     parent
         .child("Calendar", "Attendees")
         .is_none_or(|container| container.children().all(attendee_supported))

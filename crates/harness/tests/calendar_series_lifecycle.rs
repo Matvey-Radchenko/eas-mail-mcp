@@ -49,9 +49,18 @@ async fn meeting_scope_changes_emit_notifications_after_items() -> anyhow::Resul
     input.attendees.push(guest());
     let master = data(runtime.calendar_create(input).await)?.event_ref.context("master")?;
     let occurrence = agenda(&runtime).await?.get(2).context("third")?.event_ref.clone();
-    data(runtime.calendar_update(serde_json::from_value(json!({
-        "event_ref":master, "scope":"series", "subject":"Whole series", "idempotency_key":uuid(11)
-    }))?).await)?;
+    data(
+        runtime
+            .calendar_update(serde_json::from_value(json!({
+                "event_ref":master, "scope":"series", "subject":"Whole series",
+                "attendees":[
+                    {"email":"guest@example.invalid", "role":"required"},
+                    {"email":"added@example.invalid", "role":"required"}
+                ],
+                "idempotency_key":uuid(11)
+            }))?)
+            .await,
+    )?;
     data(runtime.calendar_update(serde_json::from_value(json!({
         "event_ref":occurrence, "scope":"occurrence", "subject":"One instance", "idempotency_key":uuid(12)
     }))?).await)?;

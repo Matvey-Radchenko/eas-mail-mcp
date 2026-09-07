@@ -185,26 +185,34 @@ fn whole(
         }
         super::exceptions::preserve(old_item, item)?;
         super::exceptions::validate(item)?;
-        let removed: Vec<_> = item_attendees(old)
-            .into_iter()
+        let previous = item_attendees(old);
+        let current = item_attendees(&update.event);
+        let removed: Vec<_> = previous
+            .iter()
             .filter(|attendee| {
-                !item_attendees(&update.event)
-                    .iter()
-                    .any(|current| current.email.eq_ignore_ascii_case(&attendee.email))
+                !current.iter().any(|value| value.email.eq_ignore_ascii_case(&attendee.email))
             })
+            .cloned()
             .collect();
-        plan.preview = plan.preview.clone().field(
-            "Removed attendees",
-            crate::runtime::calendar_write_preview::attendee_list(&removed),
-        );
+        let added: Vec<_> = current
+            .iter()
+            .filter(|attendee| {
+                !previous.iter().any(|value| value.email.eq_ignore_ascii_case(&attendee.email))
+            })
+            .cloned()
+            .collect();
+        plan.preview = plan
+            .preview
+            .clone()
+            .field("Added attendees", crate::runtime::calendar_write_preview::attendee_list(&added))
+            .field(
+                "Removed attendees",
+                crate::runtime::calendar_write_preview::attendee_list(&removed),
+            );
         add_result_preview(plan, &update.event);
-        notice(
-            plan,
-            STEP_NOTIFY_CURRENT,
-            &update.event,
-            item_attendees(&update.event),
-            CalendarMessageMethod::Request,
-        );
+        // Only newly invited attendees receive a Meeting Request; unchanged
+        // participants are never re-invited, mirroring native organizer clients.
+        notice(plan, STEP_NOTIFY_CURRENT, &update.event, added, CalendarMessageMethod::Request);
         notice(plan, STEP_NOTIFY_REMOVED, old, removed, CalendarMessageMethod::Cancel);
         plan.steps
             .push(ItemStep { bit: STEP_ITEM, action: ItemAction::Update(Box::new(update.event)) });
