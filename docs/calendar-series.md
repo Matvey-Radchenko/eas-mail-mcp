@@ -1,8 +1,9 @@
 # Recurring calendar and directory search
 
 These capabilities are included in `0.5.0`. Version `0.5.1` fixes the first
-live-tested personal-series lifecycle. Live recurring invitations remain a
-documented acceptance exception.
+live-tested personal-series lifecycle. Historical release exceptions are
+recorded below; the [forwarded-invitation fix](acceptance/forwarded-series-responses.md)
+has separate deterministic and limited live acceptance evidence.
 
 ## Find a colleague
 
