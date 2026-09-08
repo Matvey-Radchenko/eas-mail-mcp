@@ -11,6 +11,10 @@ pub(super) async fn run(
     mode: OutputMode,
 ) -> crate::Result<CliExit> {
     match command {
+        CalendarCommand::Sync(arguments) => {
+            let response = runtime.calendar_sync(arguments.into_input()?).await;
+            output::emit(response, mode, OutputKind::CalendarList, true)
+        }
         CalendarCommand::Availability(arguments) => {
             let response =
                 runtime.calendar_availability(calendar_input::availability(arguments)?).await;

@@ -4,6 +4,7 @@
 
 mod attachment_cache;
 pub mod backend;
+mod calendar_cache;
 /// User-facing command-line setup, diagnostics, and client registration.
 pub mod cli;
 mod config;

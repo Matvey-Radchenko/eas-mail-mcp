@@ -1,5 +1,7 @@
 mod auto_reply;
 mod calendar;
+mod calendar_sync;
+pub use calendar_sync::*;
 mod calendar_recurrence;
 mod calendar_slots;
 mod calendar_write;

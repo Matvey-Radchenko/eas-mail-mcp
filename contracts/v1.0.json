@@ -3041,6 +3041,15 @@
                 "subcommand_required": false,
                 "subcommands": {}
               },
+              "sync": {
+                "aliases": [],
+                "arg_required_else_help": false,
+                "args_conflict_with_subcommands": false,
+                "arguments": {},
+                "subcommand_negates_requirements": false,
+                "subcommand_required": false,
+                "subcommands": {}
+              },
               "update": {
                 "aliases": [],
                 "arg_required_else_help": false,
@@ -3726,6 +3735,242 @@
                   "min": 1
                 },
                 "position": 1,
+                "possible_values": [],
+                "required": false,
+                "short": null
+              }
+            },
+            "subcommand_negates_requirements": false,
+            "subcommand_required": false,
+            "subcommands": {}
+          },
+          "sync": {
+            "aliases": [],
+            "arg_required_else_help": false,
+            "args_conflict_with_subcommands": false,
+            "arguments": {
+              "account": {
+                "action": "Set",
+                "aliases": [],
+                "allow_hyphen_values": false,
+                "conflicts": [],
+                "defaults": [],
+                "global": false,
+                "hidden": false,
+                "long": "account",
+                "num_values": {
+                  "max": 1,
+                  "min": 1
+                },
+                "position": null,
+                "possible_values": [],
+                "required": false,
+                "short": null
+              },
+              "collection_id": {
+                "action": "Set",
+                "aliases": [],
+                "allow_hyphen_values": false,
+                "conflicts": [],
+                "defaults": [],
+                "global": false,
+                "hidden": false,
+                "long": "collection-id",
+                "num_values": {
+                  "max": 1,
+                  "min": 1
+                },
+                "position": null,
+                "possible_values": [],
+                "required": false,
+                "short": null
+              },
+              "date_from": {
+                "action": "Set",
+                "aliases": [],
+                "allow_hyphen_values": false,
+                "conflicts": [],
+                "defaults": [],
+                "global": false,
+                "hidden": false,
+                "long": "from",
+                "num_values": {
+                  "max": 1,
+                  "min": 1
+                },
+                "position": null,
+                "possible_values": [],
+                "required": false,
+                "short": null
+              },
+              "date_to": {
+                "action": "Set",
+                "aliases": [],
+                "allow_hyphen_values": false,
+                "conflicts": [],
+                "defaults": [],
+                "global": false,
+                "hidden": false,
+                "long": "to",
+                "num_values": {
+                  "max": 1,
+                  "min": 1
+                },
+                "position": null,
+                "possible_values": [],
+                "required": false,
+                "short": null
+              },
+              "full": {
+                "action": "SetTrue",
+                "aliases": [],
+                "allow_hyphen_values": false,
+                "conflicts": [],
+                "defaults": [
+                  "false"
+                ],
+                "global": false,
+                "hidden": false,
+                "long": "full",
+                "num_values": {
+                  "max": 0,
+                  "min": 0
+                },
+                "position": null,
+                "possible_values": [],
+                "required": false,
+                "short": null
+              },
+              "help": {
+                "action": "Help",
+                "aliases": [],
+                "allow_hyphen_values": false,
+                "conflicts": [],
+                "defaults": [],
+                "global": false,
+                "hidden": false,
+                "long": "help",
+                "num_values": {
+                  "max": 0,
+                  "min": 0
+                },
+                "position": null,
+                "possible_values": [],
+                "required": false,
+                "short": "h"
+              },
+              "human": {
+                "action": "SetTrue",
+                "aliases": [],
+                "allow_hyphen_values": false,
+                "conflicts": [
+                  "json"
+                ],
+                "defaults": [
+                  "false"
+                ],
+                "global": true,
+                "hidden": false,
+                "long": "human",
+                "num_values": {
+                  "max": 0,
+                  "min": 0
+                },
+                "position": null,
+                "possible_values": [],
+                "required": false,
+                "short": null
+              },
+              "input": {
+                "action": "Set",
+                "aliases": [],
+                "allow_hyphen_values": false,
+                "conflicts": [],
+                "defaults": [],
+                "global": false,
+                "hidden": false,
+                "long": "input",
+                "num_values": {
+                  "max": 1,
+                  "min": 1
+                },
+                "position": null,
+                "possible_values": [],
+                "required": false,
+                "short": null
+              },
+              "json": {
+                "action": "SetTrue",
+                "aliases": [],
+                "allow_hyphen_values": false,
+                "conflicts": [],
+                "defaults": [
+                  "false"
+                ],
+                "global": true,
+                "hidden": false,
+                "long": "json",
+                "num_values": {
+                  "max": 0,
+                  "min": 0
+                },
+                "position": null,
+                "possible_values": [],
+                "required": false,
+                "short": null
+              },
+              "max_pages": {
+                "action": "Set",
+                "aliases": [],
+                "allow_hyphen_values": false,
+                "conflicts": [],
+                "defaults": [],
+                "global": false,
+                "hidden": false,
+                "long": "max-pages",
+                "num_values": {
+                  "max": 1,
+                  "min": 1
+                },
+                "position": null,
+                "possible_values": [],
+                "required": false,
+                "short": null
+              },
+              "sync_key": {
+                "action": "Set",
+                "aliases": [],
+                "allow_hyphen_values": false,
+                "conflicts": [
+                  "full"
+                ],
+                "defaults": [],
+                "global": false,
+                "hidden": false,
+                "long": "sync-key",
+                "num_values": {
+                  "max": 1,
+                  "min": 1
+                },
+                "position": null,
+                "possible_values": [],
+                "required": false,
+                "short": null
+              },
+              "time_zone": {
+                "action": "Set",
+                "aliases": [],
+                "allow_hyphen_values": false,
+                "conflicts": [],
+                "defaults": [],
+                "global": false,
+                "hidden": false,
+                "long": "time-zone",
+                "num_values": {
+                  "max": 1,
+                  "min": 1
+                },
+                "position": null,
                 "possible_values": [],
                 "required": false,
                 "short": null
@@ -5241,6 +5486,15 @@
                 "subcommands": {}
               },
               "search": {
+                "aliases": [],
+                "arg_required_else_help": false,
+                "args_conflict_with_subcommands": false,
+                "arguments": {},
+                "subcommand_negates_requirements": false,
+                "subcommand_required": false,
+                "subcommands": {}
+              },
+              "sync": {
                 "aliases": [],
                 "arg_required_else_help": false,
                 "args_conflict_with_subcommands": false,
@@ -16087,6 +16341,588 @@
             "anyOf": [
               {
                 "$ref": "#/$defs/CalendarSearchData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ErrorEnvelope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/$defs/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "warnings"
+        ],
+        "type": "object"
+      }
+    },
+    "calendar_sync": {
+      "annotations": {
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "collection_id": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "date_from": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "date_to": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "full": {
+            "default": false,
+            "type": "boolean"
+          },
+          "max_pages": {
+            "maximum": 65535,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sync_key": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "time_zone": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "account_id"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "CalendarAttendeeRole": {
+            "oneOf": [
+              {
+                "const": "optional",
+                "type": "string"
+              },
+              {
+                "const": "required",
+                "type": "string"
+              },
+              {
+                "const": "resource",
+                "type": "string"
+              }
+            ]
+          },
+          "CalendarAttendeeStatus": {
+            "oneOf": [
+              {
+                "const": "accepted",
+                "type": "string"
+              },
+              {
+                "const": "declined",
+                "type": "string"
+              },
+              {
+                "const": "no_response",
+                "type": "string"
+              },
+              {
+                "const": "tentative",
+                "type": "string"
+              },
+              {
+                "const": "unknown",
+                "type": "string"
+              }
+            ]
+          },
+          "CalendarAttendeeView": {
+            "properties": {
+              "email": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "role": {
+                "$ref": "#/$defs/CalendarAttendeeRole"
+              },
+              "status": {
+                "$ref": "#/$defs/CalendarAttendeeStatus"
+              },
+              "untrusted_external_content": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "email",
+              "name",
+              "role",
+              "status",
+              "untrusted_external_content"
+            ],
+            "type": "object"
+          },
+          "CalendarBusyStatus": {
+            "oneOf": [
+              {
+                "const": "busy",
+                "type": "string"
+              },
+              {
+                "const": "free",
+                "type": "string"
+              },
+              {
+                "const": "out_of_office",
+                "type": "string"
+              },
+              {
+                "const": "tentative",
+                "type": "string"
+              }
+            ]
+          },
+          "CalendarEventType": {
+            "oneOf": [
+              {
+                "const": "attendee_meeting",
+                "type": "string"
+              },
+              {
+                "const": "organizer_meeting",
+                "type": "string"
+              },
+              {
+                "const": "personal",
+                "type": "string"
+              }
+            ]
+          },
+          "CalendarSyncCollection": {
+            "properties": {
+              "collection_id": {
+                "type": "string"
+              },
+              "event_count": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "filter_type": {
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "more_available": {
+                "type": "boolean"
+              },
+              "ready": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "collection_id",
+              "event_count",
+              "filter_type",
+              "more_available",
+              "ready"
+            ],
+            "type": "object"
+          },
+          "CalendarSyncData": {
+            "properties": {
+              "account_id": {
+                "type": "string"
+              },
+              "changes_applied": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "collections": {
+                "items": {
+                  "$ref": "#/$defs/CalendarSyncCollection"
+                },
+                "type": "array"
+              },
+              "complete": {
+                "type": "boolean"
+              },
+              "items": {
+                "items": {
+                  "$ref": "#/$defs/CalendarSyncItem"
+                },
+                "type": "array"
+              },
+              "pages": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "ready": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "account_id",
+              "changes_applied",
+              "collections",
+              "complete",
+              "items",
+              "pages",
+              "ready"
+            ],
+            "type": "object"
+          },
+          "CalendarSyncItem": {
+            "properties": {
+              "account_id": {
+                "type": "string"
+              },
+              "all_day": {
+                "type": "boolean"
+              },
+              "attendees": {
+                "items": {
+                  "$ref": "#/$defs/CalendarAttendeeView"
+                },
+                "type": "array"
+              },
+              "body": {
+                "type": "string"
+              },
+              "body_available": {
+                "type": "boolean"
+              },
+              "body_truncated": {
+                "type": "boolean"
+              },
+              "busy_status": {
+                "$ref": "#/$defs/CalendarBusyStatus"
+              },
+              "can_cancel": {
+                "type": "boolean"
+              },
+              "can_delete": {
+                "type": "boolean"
+              },
+              "can_respond": {
+                "type": "boolean"
+              },
+              "can_update": {
+                "type": "boolean"
+              },
+              "ends_at": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "event_ref": {
+                "type": "string"
+              },
+              "event_type": {
+                "$ref": "#/$defs/CalendarEventType"
+              },
+              "exceptions": {
+                "items": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "location": {
+                "type": "string"
+              },
+              "organizer": {
+                "type": "string"
+              },
+              "organizer_email": {
+                "type": "string"
+              },
+              "recurrence": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "recurring": {
+                "type": "boolean"
+              },
+              "reminder": {
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "response_status": {
+                "$ref": "#/$defs/CalendarAttendeeStatus"
+              },
+              "starts_at": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "subject": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "untrusted_external_content": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "account_id",
+              "all_day",
+              "attendees",
+              "body",
+              "body_available",
+              "body_truncated",
+              "busy_status",
+              "can_cancel",
+              "can_delete",
+              "can_respond",
+              "can_update",
+              "event_ref",
+              "event_type",
+              "exceptions",
+              "location",
+              "organizer",
+              "organizer_email",
+              "recurrence",
+              "recurring",
+              "response_status",
+              "subject",
+              "uid",
+              "untrusted_external_content"
+            ],
+            "type": "object"
+          },
+          "ErrorCode": {
+            "oneOf": [
+              {
+                "const": "ACCESS_DENIED",
+                "type": "string"
+              },
+              {
+                "const": "ACCOUNT_SELECTION_REQUIRED",
+                "type": "string"
+              },
+              {
+                "const": "AUTH_REQUIRED",
+                "type": "string"
+              },
+              {
+                "const": "CONFIG_INVALID",
+                "type": "string"
+              },
+              {
+                "const": "FEATURE_UNAVAILABLE",
+                "type": "string"
+              },
+              {
+                "const": "IDEMPOTENCY_CONFLICT",
+                "type": "string"
+              },
+              {
+                "const": "INTERACTIVE_REQUIRED",
+                "type": "string"
+              },
+              {
+                "const": "NETWORK_UNREACHABLE",
+                "type": "string"
+              },
+              {
+                "const": "NOT_FOUND",
+                "type": "string"
+              },
+              {
+                "const": "OUTCOME_UNKNOWN",
+                "type": "string"
+              },
+              {
+                "const": "POLICY_BLOCKED",
+                "type": "string"
+              },
+              {
+                "const": "PROTOCOL_ERROR",
+                "type": "string"
+              },
+              {
+                "const": "REFERENCE_EXPIRED",
+                "type": "string"
+              },
+              {
+                "const": "REMOTE_WIPE",
+                "type": "string"
+              },
+              {
+                "const": "RESOURCE_BUSY",
+                "type": "string"
+              },
+              {
+                "const": "RESULT_TOO_LARGE",
+                "type": "string"
+              },
+              {
+                "const": "SERVICE_UNAVAILABLE",
+                "type": "string"
+              },
+              {
+                "const": "STORAGE_ERROR",
+                "type": "string"
+              },
+              {
+                "const": "SYNC_STALE",
+                "type": "string"
+              },
+              {
+                "const": "THROTTLED",
+                "type": "string"
+              },
+              {
+                "const": "VALIDATION_FAILED",
+                "type": "string"
+              }
+            ]
+          },
+          "ErrorEnvelope": {
+            "properties": {
+              "account_errors": {
+                "items": {
+                  "$ref": "#/$defs/Warning"
+                },
+                "type": "array"
+              },
+              "account_id": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "code": {
+                "$ref": "#/$defs/ErrorCode"
+              },
+              "message": {
+                "type": "string"
+              },
+              "operation_id": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "remediation": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "retry_after_seconds": {
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "retryable": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "retryable"
+            ],
+            "type": "object"
+          },
+          "Warning": {
+            "properties": {
+              "account_id": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "operation_id": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "remediation": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "retry_after_seconds": {
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "retryable": {
+                "default": false,
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "account_id",
+              "code",
+              "message"
+            ],
+            "type": "object"
+          }
+        },
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CalendarSyncData"
               },
               {
                 "type": "null"

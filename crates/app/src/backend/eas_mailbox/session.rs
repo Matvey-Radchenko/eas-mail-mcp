@@ -338,6 +338,25 @@ impl AccountBackend for EasMailbox {
         self.scan_calendar_events().await
     }
 
+    async fn calendar_sync_sources(&self) -> Result<Vec<(String, u8)>> {
+        // Refresh hierarchy to notice removed/replaced calendar collections.
+        self.refresh_folders().await?;
+        let folders = self.calendar_folder_ids().await?;
+        let state = self.state.lock().await;
+        let filter = super::calendar_write_model::calendar_filter(&state)?;
+        Ok(folders.into_iter().map(|(_, id)| (id, filter)).collect())
+    }
+
+    async fn calendar_sync_page(
+        &self,
+        collection_id: &str,
+        sync_key: &str,
+    ) -> Result<eas_mail_protocol::SyncPage> {
+        let mut state = self.state.lock().await;
+        self.ensure_ready(&mut state).await?;
+        self.read_calendar_page(&mut state, collection_id, sync_key).await
+    }
+
     async fn fetch_calendar(
         &self,
         source: &BackendEvent,

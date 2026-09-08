@@ -20,7 +20,9 @@ flowchart LR
 
 Each MCP client launches its own server process. An operational CLI command
 constructs the same runtime, executes once, and exits. There is no daemon or
-shared mailbox cache. Mail FolderSync keys, collection SyncKeys, page cursors,
+shared mailbox cache by default. Opt-in `calendar_sync` persists per-account
+calendar masters and SyncKeys as described in [ADR 0005](adr/0005-local-calendar-delta.md).
+Other FolderSync keys, collection SyncKeys, page cursors,
 and prepared previews exist only in that process. The unit of MCP lifetime is a
 stdio connection: clients that retain multiple task sessions retain multiple
 server processes. Closing the transport ends the process; editing client

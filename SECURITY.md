@@ -66,7 +66,12 @@ Passwords, Device IDs, policy state, and the HMAC key are not `Debug` values and
 are stored in macOS Keychain or Windows Credential Manager. SQLite contains only
 idempotency metadata, minimal result locators, and keyed payload hashes. Mail and
 calendar data stays in process memory, except for explicitly downloaded
-attachments. Attachments become eligible for cleanup after 24 hours; cleanup is
+attachments and the opt-in `calendar_sync` snapshot described in
+[ADR 0005](docs/adr/0005-local-calendar-delta.md). That method stores private
+calendar metadata and SyncKeys under `calendar-sync` in application support;
+these files contain sensitive calendar content and must not be published.
+Account removal and supported remote wipe purge them. Attachment-only `cache clear`
+does not purge calendar snapshots. Attachments become eligible for cleanup after 24 hours; cleanup is
 lazy at startup and before downloads. `cache clear` removes downloads without
 deleting write history. Outgoing attachment paths are read only when explicitly
 supplied to a write; file contents participate in the payload fingerprint and

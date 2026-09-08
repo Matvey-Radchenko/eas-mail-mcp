@@ -14,6 +14,18 @@ use crate::model::{
 
 #[tool_router(router = read_tools, vis = "pub(crate)")]
 impl MailMcpServer {
+    /// Opt in to a private persistent calendar cache; fetch only changes after initialization.
+    #[tool(
+        output_schema = rmcp::handler::server::tool::schema_for_output::<crate::ApiResponse<crate::CalendarSyncData>>(),
+        name = "calendar_sync",
+        annotations(title = "Synchronize calendar changes", read_only_hint = true, open_world_hint = true))]
+    async fn calendar_sync(
+        &self,
+        Parameters(input): Parameters<crate::CalendarSyncInput>,
+    ) -> Json<crate::CalendarSyncData> {
+        Json(self.runtime.calendar_sync(input).await)
+    }
+
     /// Searches one account's directory for names and email addresses, without calendar data.
     #[tool(
         output_schema = rmcp::handler::server::tool::schema_for_output::<crate::ApiResponse<PeopleSearchData>>(),
