@@ -10,6 +10,7 @@ mod calendar_respond;
 mod calendar_response_prepare;
 mod calendar_schedule;
 mod calendar_series;
+mod calendar_sync;
 mod calendar_write_preview;
 mod calendar_write_result;
 mod calendar_write_support;
@@ -53,6 +54,7 @@ use crate::{
 
 /// Direct MCP application state shared by tool handlers.
 pub struct Runtime {
+    pub(super) calendar_cache: crate::calendar_cache::CalendarCache,
     pub(super) backends: BTreeMap<String, Arc<dyn AccountBackend>>,
     pub(super) references: References,
     pub(super) journal: Arc<dyn OperationJournal>,
@@ -88,14 +90,17 @@ impl Runtime {
                 profiles,
             ));
         }
-        Self::with_dependencies(
+        let mut runtime = Self::with_dependencies(
             backends,
             journal,
             Arc::new(SystemClock),
             Arc::new(RandomIds),
             bundle.hmac_key.clone(),
             paths.attachments.clone(),
-        )
+        )?;
+        runtime.calendar_cache =
+            crate::calendar_cache::CalendarCache::new(paths.support.join("calendar-sync"));
+        Ok(runtime)
     }
 
     pub(crate) fn purge_persisted_account(paths: &Paths, account_id: &str) -> Result<()> {
@@ -104,6 +109,8 @@ impl Runtime {
         let cache = AttachmentCache::new(paths.attachments.clone(), Arc::new(SystemClock))?;
         let journal_result = journal.purge_account(account_id).map(|_| ());
         let attachment_result = cache.purge_account(account_id);
+        crate::calendar_cache::CalendarCache::new(paths.support.join("calendar-sync"))
+            .purge(account_id)?;
         journal_result?;
         attachment_result
     }
@@ -124,6 +131,8 @@ impl Runtime {
             AppError::new(ErrorCode::StorageError, "write lock directory is unavailable")
         })?;
         let write_locks = WriteLocks::new(lock_root.join("write-locks"))?;
+        let calendar_cache =
+            crate::calendar_cache::CalendarCache::new(lock_root.join("calendar-sync"));
         for account_id in journal.pending_accounts()? {
             if let Some(_guard) = write_locks.try_acquire(&account_id)? {
                 journal.recover_account(&account_id)?;
@@ -141,6 +150,7 @@ impl Runtime {
             }
         }
         Ok(Self {
+            calendar_cache,
             backends: indexed,
             references: References::new(clock.clone(), ids),
             journal,
@@ -271,6 +281,7 @@ impl Runtime {
         let references = self.references.purge_account(account_id);
         let journal = self.journal.purge_account(account_id).map(|_| ());
         let attachments = self.attachments.purge_account(account_id);
+        self.calendar_cache.purge(account_id)?;
         references?;
         journal?;
         attachments

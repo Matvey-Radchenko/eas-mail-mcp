@@ -106,6 +106,26 @@ pub trait AccountBackend: Send + Sync {
     /// Reads a fresh metadata-only Calendar snapshot for local agenda filtering.
     async fn scan_calendar_metadata(&self) -> Result<BackendCalendarSearch>;
 
+    /// Lists calendar collection IDs and the policy-enforced filter for durable Sync.
+    async fn calendar_sync_sources(&self) -> Result<Vec<(String, u8)>> {
+        Err(crate::AppError::new(
+            crate::ErrorCode::FeatureUnavailable,
+            "Calendar delta sync is unavailable",
+        ))
+    }
+
+    /// Reads one Calendar delta page without changing the supplied client snapshot.
+    async fn calendar_sync_page(
+        &self,
+        _collection_id: &str,
+        _sync_key: &str,
+    ) -> Result<eas_mail_protocol::SyncPage> {
+        Err(crate::AppError::new(
+            crate::ErrorCode::FeatureUnavailable,
+            "Calendar delta sync is unavailable",
+        ))
+    }
+
     /// Fetches one full Calendar item from a Search LongId.
     async fn fetch_calendar(
         &self,

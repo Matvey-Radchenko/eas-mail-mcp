@@ -26,6 +26,14 @@ pub(super) struct AgendaRange {
 }
 
 pub(super) fn plan(input: &CalendarSearchInput) -> Result<AgendaPlan> {
+    plan_with_limit(input, MAX_DAYS)
+}
+
+pub(super) fn sync_plan(input: &CalendarSearchInput) -> Result<AgendaPlan> {
+    plan_with_limit(input, 366)
+}
+
+fn plan_with_limit(input: &CalendarSearchInput, max_days: i64) -> Result<AgendaPlan> {
     let query =
         input.query.as_deref().map(str::trim).filter(|value| !value.is_empty()).map(str::to_owned);
     if input.query.is_some() && query.is_none() {
@@ -37,7 +45,12 @@ pub(super) fn plan(input: &CalendarSearchInput) -> Result<AgendaPlan> {
             let time_zone = time_zone
                 .parse::<Tz>()
                 .map_err(|_| validation("time_zone must be a valid IANA timezone"))?;
-            (Some(date_range(date_from, date_to, time_zone)?), Some(time_zone))
+            let range = if max_days == MAX_DAYS {
+                date_range(date_from, date_to, time_zone)?
+            } else {
+                date_range_with_limit(date_from, date_to, time_zone, max_days)?
+            };
+            (Some(range), Some(time_zone))
         }
         _ => {
             return Err(validation("date_from, date_to, and time_zone must be supplied together"));
@@ -78,11 +91,20 @@ impl AgendaPlan {
 }
 
 fn date_range(date_from: &str, date_to: &str, time_zone: Tz) -> Result<AgendaRange> {
+    date_range_with_limit(date_from, date_to, time_zone, MAX_DAYS)
+}
+
+fn date_range_with_limit(
+    date_from: &str,
+    date_to: &str,
+    time_zone: Tz,
+    max_days: i64,
+) -> Result<AgendaRange> {
     let date_from = parse_date(date_from)?;
     let date_to = parse_date(date_to)?;
     let days = date_to.signed_duration_since(date_from).num_days().saturating_add(1);
-    if !(1..=MAX_DAYS).contains(&days) {
-        return Err(validation("date range must contain from 1 through 31 days"));
+    if !(1..=max_days).contains(&days) {
+        return Err(validation("date range exceeds the allowed window"));
     }
     let exclusive_end =
         date_to.succ_opt().ok_or_else(|| validation("calendar date range overflows"))?;

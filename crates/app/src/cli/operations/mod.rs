@@ -3,6 +3,7 @@ mod calendar;
 mod calendar_args;
 mod calendar_input;
 mod calendar_recurrence;
+mod calendar_sync;
 mod common;
 mod human;
 mod human_slots;

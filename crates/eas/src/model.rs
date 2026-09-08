@@ -13,7 +13,7 @@ pub enum CollectionKind {
 }
 
 /// Field-presence marker used by partial EAS Change commands.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum Patch<T> {
     /// The server did not include this field.
     #[default]
@@ -138,7 +138,7 @@ pub struct MailFields {
 }
 
 /// Calendar fields with exact partial-update semantics.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CalendarFields {
     /// Lossless write metadata; absent only on legacy or partial projections.
     pub properties: Option<crate::CalendarProperties>,
@@ -185,7 +185,7 @@ pub struct CalendarFields {
 }
 
 /// One Calendar attendee parsed from or sent to Exchange.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CalendarAttendee {
     /// SMTP address.
     pub email: String,

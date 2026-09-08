@@ -1,12 +1,12 @@
 //! Lossless, validated Calendar recurrence and exception values.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{CalendarFields, Patch};
 
 /// Gregorian recurrence selector supported by EAS 14.1.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RecurrencePattern {
     /// Every N days.
     Daily,
@@ -46,7 +46,7 @@ pub enum RecurrencePattern {
 }
 
 /// Exclusive recurrence termination alternatives.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RecurrenceEnd {
     /// No specified ending.
     Never,
@@ -57,7 +57,7 @@ pub enum RecurrenceEnd {
 }
 
 /// Validated EAS recurrence rule.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CalendarRecurrence {
     /// Gregorian recurrence pattern.
     pub pattern: RecurrencePattern,
@@ -70,7 +70,7 @@ pub struct CalendarRecurrence {
 }
 
 /// A changed or deleted occurrence, keyed by its original UTC start.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CalendarException {
     /// Original start, unaffected by a later move.
     pub original_start: DateTime<Utc>,
@@ -81,7 +81,7 @@ pub struct CalendarException {
 }
 
 /// Additional Calendar data retained across full-item writes.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CalendarProperties {
     /// Recurrence of the master, absent for a single event.
     pub recurrence: Option<CalendarRecurrence>,

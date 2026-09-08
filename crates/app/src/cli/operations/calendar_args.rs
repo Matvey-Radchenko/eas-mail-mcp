@@ -6,6 +6,8 @@ use super::common::{
 
 #[derive(Debug, Subcommand)]
 pub(in crate::cli) enum CalendarCommand {
+    /// Persist Calendar state and fetch only changes on subsequent calls.
+    Sync(super::calendar_sync::CalendarSyncArgs),
     /// Resolve participants and return compact free/busy intervals.
     Availability(CalendarAvailabilityArgs),
     /// Find common free meeting windows.
